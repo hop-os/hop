@@ -67,6 +67,9 @@ pub struct KernState {
     pub system: BTreeMap<u64, SlotInfo>,
     /// Hoeveel slots er tegelijk passen; daarboven "no free run".
     pub max_slots: usize,
+    /// Het hoogste slotnummer (de `max_slots` van een board in de kern):
+    /// daarboven weigert `SLOT_STATUS` met "out of range".
+    pub slot_cap: u64,
     /// Elke op die binnenkwam, in volgorde.
     pub ops: Vec<u8>,
     /// De laatst gezette klok.
@@ -146,6 +149,7 @@ impl FakeKern {
     pub fn new(max_slots: usize) -> Self {
         Self(Rc::new(RefCell::new(KernState {
             max_slots,
+            slot_cap: 16,
             ..KernState::default()
         })))
     }
@@ -388,6 +392,13 @@ impl FakeKern {
                 None => err("no such slot"),
             },
             Some(PrivOp::SlotStatus) => {
+                if req.off > k.slot_cap {
+                    return err(&alloc::format!(
+                        "slot {} out of range 1..{}",
+                        req.off,
+                        k.slot_cap
+                    ));
+                }
                 if let Some(info) = k.system.get(&req.off) {
                     return ok(0, &info.encode());
                 }

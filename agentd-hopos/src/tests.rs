@@ -727,7 +727,7 @@ fn a_fresh_resident_stops_what_the_kernel_still_runs() {
     let sys = KernSys::new(k.client(), 4);
     let mut again = Node::new(&cfg(), sys, MemImages::new(BTreeMap::new()), T0);
     assert_eq!(block_on(again.restore(T0)), Ok(Kept::Clean));
-    block_on(again.sweep_strays());
+    block_on(again.sweep_strays()).unwrap();
     assert_eq!(k.0.borrow().slots.keys().copied().collect::<Vec<_>>(), [1]);
     assert!(
         again
@@ -1336,7 +1336,7 @@ fn a_restarted_hop_adopts_what_the_kernel_still_runs() {
         "{lines:?}"
     );
     // De veger laat de overgenomen kooi staan.
-    block_on(again.sweep_strays());
+    block_on(again.sweep_strays()).unwrap();
     assert_eq!(k.0.borrow().slots.len(), 1);
     assert_eq!(again.runner().slot_of(&id), Some(runner::Slot(1)));
     let t = again.agent().task(&id).unwrap();

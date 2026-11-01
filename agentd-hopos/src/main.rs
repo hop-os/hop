@@ -1032,7 +1032,10 @@ async fn resident(app: &'static App) {
             fail(app, f.code, "restore", f.why).await
         }
     };
-    node.sweep_strays().await;
+    if let Err(f) = node.sweep_strays().await {
+        flush(&mut node);
+        fail(app, f.code, "sweep", f.why).await;
+    }
     flush(&mut node);
     // De klok, als stap in de reeks (besluit O9, 01-11): één meting, en
     // SET_CLOCK over de hoofdverbinding. Vóór het zaaien en de cluster: een

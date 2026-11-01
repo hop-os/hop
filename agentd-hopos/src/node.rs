@@ -433,13 +433,18 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     /// volgende bewoner (02-10, de M4: twee minuten 503 "port 80 is taken"
     /// tot Hop het slot met de echte spin erin stopte); het blob in de kern
     /// kent geen vorige boot, en de overname eist een slot dat draait.
-    pub async fn sweep_strays(&mut self) {
-        for slot in self.runner.sweep_strays().await {
+    pub async fn sweep_strays(&mut self) -> Result<(), Fatal> {
+        let stopped = self.runner.sweep_strays().await.map_err(|e| Fatal {
+            code: EXIT_KERNEL,
+            why: format!("the sweep of stray residents: {e}"),
+        })?;
+        for slot in stopped {
             self.lines.push(format!(
                 "hop: stray resident in slot {} stopped: not in the saved state HOP_STRAY_STOPPED slot={}",
                 slot.0, slot.0
             ));
         }
+        Ok(())
     }
 
     /// Neemt de staat van de vorige Hop over uit de kern: zijn jobs, en de

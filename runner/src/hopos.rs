@@ -215,29 +215,39 @@ impl<S: SystemApi> HopRunner<S> {
     /// de kern neerlegde, neemt de nieuwe eerst over
     /// ([`adopt_running`](Self::adopt_running)); wie daarna nog een slot
     /// houdt (een job die rond de herstart verwijderd werd, een taak die
-    /// startte na de laatste staat, een kern die geen staat bewaart) houdt
-    /// zijn slot anders tot de volgende koude boot: de kern kiest het
-    /// laagste vrije slot en kent geen eigenaar. GEMETEN 01-10 op de Pi 4:
-    /// twee uitgemeten benches in slot 3 en 4 die Hop niet kende; elke
-    /// plaatsing en elke flip liep daarna op "slot 5 out of range 1..4". Een
-    /// node heeft één Hop, dus een bewoner die hij niet kent, is van
-    /// niemand. Alleen de slots boven het eigen (1); een stop die de kern
-    /// niet bevestigt, blijft zijn quarantaine (hij wordt niet hergebruikt).
-    pub async fn sweep_strays(&mut self) -> Vec<Slot> {
+    /// startte na de laatste staat) houdt zijn slot anders tot de volgende
+    /// koude boot: de kern kiest het laagste vrije slot en kent geen
+    /// eigenaar. GEMETEN 01-10 op de Pi 4: twee uitgemeten benches in slot 3
+    /// en 4 die Hop niet kende; elke plaatsing en elke flip liep daarna op
+    /// "slot 5 out of range 1..4". Een node heeft één Hop, dus een bewoner
+    /// die hij niet kent, is van niemand.
+    ///
+    /// Van slot 2 (boven het eigen, 1) tot de kern het slot weigert ("out
+    /// of range"): de kern deelt slots uit tot zijn `max_slots` (op rk3566
+    /// 11, op de LicheeRV 16), niet tot de app-cores van Hop, en een bewoner
+    /// in een sharegroup zat er vaak boven (F6). Een kern die niet antwoordt,
+    /// of een stop die hij niet bevestigt, is een fout: bij de start hard.
+    pub async fn sweep_strays(&mut self) -> core::result::Result<Vec<Slot>, SysError> {
         let mut stopped = Vec::new();
-        for i in 2..=self.sys.num_cores().max(2) {
-            let slot = Slot(i);
-            if self.in_use.contains_key(&slot) {
-                continue;
+        let mut slot = Slot(2);
+        loop {
+            if !self.in_use.contains_key(&slot) {
+                let st = match self.sys.slot_status(slot).await {
+                    Ok(st) => st,
+                    // Buiten bereik: elk slot van de kern is gezien.
+                    Err(SysError::Refused(_)) => return Ok(stopped),
+                    Err(e) => return Err(e),
+                };
+                if st.state == SlotState::Running {
+                    self.sys.stop_slot(slot, HOP_STOP_TIMEOUT_MS).await?;
+                    stopped.push(slot);
+                }
             }
-            if self.sys.slot_status(slot).await.map(|s| s.state) != Ok(SlotState::Running) {
-                continue;
-            }
-            if self.sys.stop_slot(slot, HOP_STOP_TIMEOUT_MS).await.is_ok() {
-                stopped.push(slot);
-            }
+            let Some(next) = slot.0.checked_add(1) else {
+                return Ok(stopped);
+            };
+            slot = Slot(next);
         }
-        stopped
     }
 
     /// CPU (procent van de eigen cores) en werkelijk geheugen, zoals de app ze
