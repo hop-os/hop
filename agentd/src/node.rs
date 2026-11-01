@@ -682,10 +682,7 @@ impl Node {
                 self.election
                     .on_reply(&mut self.elector, &mut self.agent, &r, result)
             }
-            LinkRequest::StartLeader => {
-                self.become_leader(now);
-                Vec::new()
-            }
+            LinkRequest::StartLeader => self.become_leader(now),
             LinkRequest::StopLeader => {
                 if self.leader.take().is_some() {
                     eprintln!("hop: stepped down as leader HOP_LEADER_STOPPED");
@@ -745,36 +742,42 @@ impl Node {
 
     /// Start de leader-helft: staat laden, zichzelf registreren, en op een schone boot de init-jobs.
     ///
-    /// Go: `agentloop.BecomeLeader`. Een opslag die niet antwoordt is geen
-    /// lege opslag: dan geen init-jobs (nooit zaaien op een storing).
-    fn become_leader(&mut self, now: Nanos) {
+    /// Go: `agentloop.BecomeLeader`. Een opslag die niet antwoordt, of een
+    /// staat die niet te lezen is, is geen lege opslag: dan leidt deze node
+    /// niet (besluit H4, 01-11). Hij treedt af en laat de lease los (de
+    /// aanroepen daarvan komen terug), en de volgende verkiezing probeert het
+    /// opnieuw. Een leider met een lege store maakte met zijn eerste mutatie
+    /// een snapshot met alleen die job.
+    fn become_leader(&mut self, now: Nanos) -> Vec<LinkRequest> {
         if self.leader.is_some() {
-            return;
+            return Vec::new();
         }
         let mut l = Leader::new(String::from(self.agent.id()), MemStore::new());
         l.set_agent_timeout(self.node_dead);
         if self.clustered {
             l.enable_settle(Time(now));
         }
-        let clean = match persist::load(&self.persist, self.load_wait) {
-            Ok(snapshot) => match l.load_committed_state(snapshot.as_deref()) {
-                Ok(loaded) => {
-                    if loaded {
-                        eprintln!(
-                            "hop: committed cluster state loaded: {} job(s) HOP_STATE_LOADED",
-                            l.jobs().len()
-                        );
-                    }
-                    !loaded
+        let loaded = persist::load(&self.persist, self.load_wait).and_then(|s| {
+            l.load_committed_state(s.as_deref())
+                .map_err(|e| format!("unreadable: {e}"))
+        });
+        let clean = match loaded {
+            Ok(loaded) => {
+                if loaded {
+                    eprintln!(
+                        "hop: committed cluster state loaded: {} job(s) HOP_STATE_LOADED",
+                        l.jobs().len()
+                    );
                 }
-                Err(e) => {
-                    eprintln!("hop: committed state unreadable: {e} HOP_STATE_FAIL");
-                    false
-                }
-            },
+                !loaded
+            }
             Err(e) => {
-                eprintln!("hop: committed state not loaded: {e} HOP_STATE_FAIL");
-                false
+                eprintln!(
+                    "hop: committed state not loaded ({e}); not leading, the lease goes back HOP_STATE_FAIL"
+                );
+                return self
+                    .election
+                    .step_down(&mut self.elector, &mut self.agent, true);
             }
         };
         self.leader = Some(l);
@@ -787,6 +790,7 @@ impl Node {
         if clean && !self.init_jobs.is_empty() {
             self.seed_init_jobs(now);
         }
+        Vec::new()
     }
 
     fn seed_init_jobs(&mut self, now: Nanos) {

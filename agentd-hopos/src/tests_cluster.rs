@@ -804,6 +804,30 @@ fn without_a_synced_clock_the_node_does_not_join() {
 }
 
 #[test]
+fn a_leader_that_cannot_read_its_state_does_not_lead() {
+    for got in [
+        Err(String::from("store did not answer")),
+        Ok(Some(b"{nee".to_vec())),
+    ] {
+        let (mut n, q) = clustered(|| true);
+        n.cluster_boot(T0);
+        n.on_mail(Mail::Lease(LeaseReply::Claimed(true)), T0);
+        assert_eq!(drain(q.lease), vec![LeaseOp::Claim]);
+        assert_eq!(drain(q.state), vec![StateOp::Load]);
+        n.on_mail(Mail::Loaded(got), T0);
+        // Geen leider met een lege store: de API blijft dicht en de lease
+        // gaat terug, de volgende verkiezing probeert het opnieuw.
+        assert!(said(
+            &mut n,
+            "not leading, the lease goes back HOP_STATE_FAIL"
+        ));
+        let jobs = signed_body(Method::Get, "/v1/jobs", "");
+        assert_eq!(status(&routed(&mut n, Port::Leader, &jobs, T0)), 503);
+        assert_eq!(drain(q.lease), vec![LeaseOp::Release]);
+    }
+}
+
+#[test]
 fn a_free_lock_makes_the_node_leader_with_the_committed_state() {
     let (mut n, q) = clustered(|| true);
     n.cluster_boot(T0);

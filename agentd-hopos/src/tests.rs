@@ -1416,7 +1416,7 @@ fn the_own_slot_of_hop_is_never_adopted() {
 
 #[test]
 fn an_unreadable_state_stops_hop_before_the_sweep() {
-    let (mut n, k) = placed_for_a_restart();
+    let (n, k) = placed_for_a_restart();
     drop(n);
     k.0.borrow_mut().state = b"{\"version\":1,\"tasks\":{}}".to_vec();
     let mut again = next_hop(&k);

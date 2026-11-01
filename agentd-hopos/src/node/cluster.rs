@@ -15,8 +15,10 @@
 //!   komen als [`Mail`] terug in [`Node::on_mail`];
 //! - leider worden is twee stappen: de verkiezing zegt het, de staat-taak
 //!   leest de gecommitte staat, en pas met die staat gaat de leader-API open
-//!   (tot dan 503). Een opslag die niet antwoordt is geen lege opslag: dan
-//!   geen init-jobs (Go: nooit zaaien op een storing);
+//!   (tot dan 503). Een opslag die niet antwoordt, of een staat die niet te
+//!   lezen is, is geen lege opslag: dan leidt deze node niet (de lease los,
+//!   een volgende verkiezing), want een leider met een lege store maakt
+//!   met zijn eerste mutatie een snapshot met alleen die job;
 //! - aftreden: eerst de leader-helft weg, dan pas de lease los (de volgorde
 //!   van [`agent::Election::step_down`]);
 //! - de klok: een lease is een tijd op de wandklok van de schrijver, en
@@ -692,28 +694,29 @@ impl<S: SystemApi + agent::Store, I: Images> Node<S, I> {
         let mut l = Leader::new(String::from(self.agent.id()), MemStore::new());
         l.set_agent_timeout(c.node_dead);
         l.enable_settle(Time(now));
-        let clean = match got {
-            Ok(snapshot) => match l.load_committed_state(snapshot.as_deref()) {
-                Ok(true) => {
-                    self.lines.push(format!(
-                        "hop: committed cluster state loaded: {} job(s) HOP_STATE_LOADED",
-                        l.jobs().len()
-                    ));
-                    false
-                }
-                Ok(false) => true,
-                Err(e) => {
-                    self.lines.push(format!(
-                        "hop: committed state unreadable: {e} HOP_STATE_FAIL"
-                    ));
-                    false
-                }
-            },
-            Err(e) => {
+        let loaded = got.and_then(|s| {
+            l.load_committed_state(s.as_deref())
+                .map_err(|e| format!("unreadable: {e}"))
+        });
+        let clean = match loaded {
+            Ok(true) => {
                 self.lines.push(format!(
-                    "hop: committed state not loaded: {e} HOP_STATE_FAIL"
+                    "hop: committed cluster state loaded: {} job(s) HOP_STATE_LOADED",
+                    l.jobs().len()
                 ));
                 false
+            }
+            Ok(false) => true,
+            Err(e) => {
+                // Niet leiden (besluit H4, 01-11): de lease los, en de
+                // volgende verkiezing probeert het opnieuw, hier of op een
+                // node die de opslag wel leest.
+                self.lines.push(format!(
+                    "hop: committed state not loaded ({e}); not leading, the lease goes back HOP_STATE_FAIL"
+                ));
+                let reqs = c.election.step_down(&mut c.elector, &mut self.agent, true);
+                self.requests(now, reqs);
+                return;
             }
         };
         self.leader = l;
