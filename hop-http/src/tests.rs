@@ -224,7 +224,6 @@ fn unwired_effects_are_refused_loudly() {
     let f = refuse(&Effect::Flip {
         url: String::new(),
         sha256: String::new(),
-        cold: false,
     })
     .unwrap();
     assert_eq!(f.status, 501);

@@ -59,7 +59,7 @@ use types::time::{MILLISECOND, SECOND};
 use types::{Artifact, Driver, Job, Map, Nanos, SysUsage, Telemetry, Time};
 
 use crate::download::{Order, Piece};
-use crate::env::{BootConfig, ColdFlip};
+use crate::env::BootConfig;
 use crate::forward::{Forward, Routed};
 use crate::local::Local;
 use crate::sntp::{ClockStep, Sample};
@@ -91,13 +91,6 @@ const DYNAMIC_PORT_BASE: u16 = 20_000;
 /// plant een herstart); de grens houdt een fout in die keten uit een
 /// oneindige lus, de volgende tik pakt de rest op.
 const ACTION_ROUNDS: usize = 16;
-
-/// Hoe lang een koude flip die de kern aannam, mag duren voordat Hop hem
-/// geweigerd noemt. Een koude sprong start Hop opnieuw, dus een Hop die
-/// dan nog leeft, sprong niet mee. De kern doet er na zijn antwoord een
-/// halve seconde, de bevriezing van hopfs (hoogstens 2 s), elke bewoner
-/// die Hop liet staan (hoogstens 3 s per stuk) en de app-cores (1 s) over.
-const COLD_FLIP_WAIT: Nanos = 30 * SECOND;
 
 /// Wat [`Node::restore`] bij de start aantrof.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -209,16 +202,6 @@ pub struct Node<S, I> {
     kern: SysUsage,
     hop: SysUsage,
     next_measure: Nanos,
-    /// Een koude flip die de kern aannam: leeft deze Hop op dit moment nog,
-    /// dan sprong de kern niet ([`COLD_FLIP_WAIT`]).
-    cold_flip_until: Option<Nanos>,
-    /// Kan het board koud flippen (`HOPOS_COLD_FLIP`, [`Node::cold_refusal`]).
-    cold_flip: ColdFlip,
-    /// Draaide er sinds de start van deze Hop ooit iets op een app-core:
-    /// Hop zelf buiten `system`, of een plaatsing buiten `system`. Zonder
-    /// zekerheid ja (een job zonder groep kan op de OS-core vallen, maar
-    /// telt): met `fresh` weigert Hop dan liever zelf dan te stoppen.
-    app_core_used: bool,
     /// De starts die op hun image wachten, in volgorde; de eerste is de
     /// download die loopt (als hij `sent` is).
     loads: VecDeque<Loading>,
@@ -302,9 +285,6 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             kern: SysUsage::default(),
             hop: SysUsage::default(),
             next_measure: now,
-            cold_flip_until: None,
-            cold_flip: cfg.cold_flip,
-            app_core_used: cfg.hop_group != agent::SYSTEM_GROUP,
             loads: VecDeque::new(),
             next_seq: 1,
             leaving: false,
@@ -521,11 +501,6 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             .collect();
         let n = tasks.len();
         self.agent.adopt(h.jobs, tasks);
-        if n > 0 {
-            // Zonder zekerheid ja (zie het veld): een overgenomen kooi kan
-            // op een app-core staan.
-            self.app_core_used = true;
-        }
         if self.cluster.is_none() {
             if let Some(l) = h.leader
                 && let Err(e) = self.leader.load_committed_state(Some(l.as_bytes()))
@@ -739,8 +714,8 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
                 let (resp, effect) = self.node_api.handle(&mut self.agent, now, pool, req);
                 // FLIP: de kern-flip wacht op download en kern, dus hier en
                 // niet in het synchrone `effect` (crate::flip).
-                if let Effect::Flip { url, sha256, cold } = &effect {
-                    let r = self.flip(url, sha256, *cold, now).await;
+                if let Effect::Flip { url, sha256 } = &effect {
+                    let r = self.flip(url, sha256).await;
                     match r {
                         Ok(()) => {
                             self.lines.push(String::from(
@@ -789,46 +764,16 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         routed
     }
 
-    /// FLIP: haal de bundel, stop bij een koude flip eerst de eigen taken
-    /// op deze node, en vraag de kern de flip (crate::flip).
-    ///
-    /// Een koude flip die het board niet kan ([`Node::cold_refusal`]),
-    /// weigert Hop meteen: geen download, geen stop, één regel
-    /// (`HOP_FLIP_FAIL`) en een 502 met "ask warm".
-    ///
-    /// De taken stoppen pas ná de download: een URL die niet werkt, laat
-    /// alles draaien. Ze stoppen via de agent (`hold_for_flip`, dezelfde
-    /// Stop-acties als een preemptie, maar de records blijven), zodat de
-    /// telling van de leader klopt als de kern toch niet springt; springt
-    /// hij, dan plaatst de leader van de cluster ze opnieuw. Weigert de kern (de FLIP geeft een fout, of deze Hop leeft
-    /// na [`COLD_FLIP_WAIT`] nog), dan herstarten ze hier
-    /// ([`Node::cold_flip_back`]).
-    async fn flip(&mut self, url: &str, sha256: &str, cold: bool, now: Nanos) -> Result<(), String>
+    /// FLIP: haal de bundel en vraag de kern de warme flip (crate::flip).
+    /// De taken draaien door; een weigering is een nee aan de aanroeper.
+    async fn flip(&mut self, url: &str, sha256: &str) -> Result<(), String>
     where
         S: crate::flip::KernFlip,
     {
-        if cold && let Some(why) = self.cold_refusal() {
-            return Err(String::from(why));
-        }
-        let how = if cold { " (cold)" } else { "" };
-        self.lines.push(format!(
-            "hop: kernel flip{how} requested from {url} HOP_FLIP"
-        ));
+        self.lines
+            .push(format!("hop: kernel flip requested from {url} HOP_FLIP"));
         let slot = crate::flip::fetch(self.runner.system_mut(), &mut self.images, url).await?;
-        if !cold {
-            return crate::flip::ask(self.runner.system_mut(), slot, sha256, false).await;
-        }
-        let n = self.agent.hold_for_flip();
-        self.drain(now).await;
-        self.lines.push(format!(
-            "hop: cold flip: {n} task(s) on this node stopped, their jobs come back after the new kernel HOP_FLIP_COLD_STOP stopped={n}"
-        ));
-        let r = crate::flip::ask(self.runner.system_mut(), slot, sha256, true).await;
-        match r {
-            Ok(()) => self.cold_flip_until = Some(now.saturating_add(COLD_FLIP_WAIT)),
-            Err(_) => self.cold_flip_back(now).await,
-        }
-        r
+        crate::flip::ask(self.runner.system_mut(), slot, sha256).await
     }
 
     /// RESTART: haal een nieuw image als er een `url` is, leg de staat nu
@@ -863,29 +808,6 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             ));
         }
         crate::restart::ask(self.runner.system_mut(), slot, sha256).await
-    }
-
-    /// Waarom dit board nu niet koud kan flippen, als Hop dat al weet: het
-    /// board-contract van de kern (`HOPOS_COLD_FLIP`) en de eigen
-    /// plaatsingen. `None` is vragen; de kern weigert dan nog zelf.
-    fn cold_refusal(&self) -> Option<&'static str> {
-        match self.cold_flip {
-            ColdFlip::No => Some("cold flip: no PSCI on this board, ask warm"),
-            ColdFlip::Fresh if self.app_core_used => Some(
-                "cold flip: CPU_OFF has no way back on this board and an app core ran, ask warm",
-            ),
-            ColdFlip::Fresh | ColdFlip::Yes => None,
-        }
-    }
-
-    /// De koude flip ging niet door: de taken die hij stopte, herstarten.
-    async fn cold_flip_back(&mut self, now: Nanos) {
-        self.cold_flip_until = None;
-        let n = self.agent.resume_after_flip(now);
-        self.lines.push(format!(
-            "hop: cold flip refused by the kernel, {n} stopped task(s) restart HOP_FLIP_COLD_BACK"
-        ));
-        self.drain(now).await;
     }
 
     /// Een verzoek aan de leader, met de eigen agent als transport.
@@ -1118,9 +1040,6 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
                 self.lines.push(format!("hop: leader tick: {e}"));
             }
         }
-        if self.cold_flip_until.is_some_and(|t| now >= t) {
-            self.cold_flip_back(now).await;
-        }
         let actions = self.agent.tick(now);
         self.run_actions(now, actions).await;
         self.drain(now).await;
@@ -1252,13 +1171,6 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             ports: &ports,
         };
         let started = self.runner.start(ms, &req).await;
-        // De kern zette hem op een core: buiten `system` telt dat als een
-        // app-core ([`Node::cold_refusal`]).
-        if matches!(started, Ok(Started::Running { .. } | Started::AwaitImage))
-            && tags.get("sharegroup").map(String::as_str) != Some(agent::SYSTEM_GROUP)
-        {
-            self.app_core_used = true;
-        }
         let outcome = match started {
             Ok(Started::Running { pid }) => Ok(pid),
             Ok(Started::Aborted) => Err((StartError::Failed, String::from("aborted"))),

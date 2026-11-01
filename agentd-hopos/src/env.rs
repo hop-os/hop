@@ -17,7 +17,6 @@
 //! | `HOPOS_CORES` | de eigen app-cores die Hop uitdeelt; 0 mag alleen met `HOPOS_SYSTEM_CORE=1` | `1` |
 //! | `HOPOS_SYSTEM_CORE` | `1`: de kern deelt zijn core als sharegroup `system`; die telt niet in `HOPOS_CORES`, een job in `system` past altijd en een job zonder groep van één core mag bij een volle node door (de kern zet hem dan op de OS-core) | uit |
 //! | `HOPOS_HOP_GROUP` | de sharegroup van Hop zelf (`hopos.hop.sharegroup`): jobs met die tag delen Hop's core en tellen niet in `HOPOS_CORES` | `hop` |
-//! | `HOPOS_COLD_FLIP` | kan het board koud flippen: `yes`, `no` (geen PSCI, de M4) of `fresh` (alleen zolang nog nooit een app-core draaide, de Pi 5); Hop beslist ermee vóór hij een taak stopt ([`ColdFlip`]) | `yes` (een oude kern weigert zelf) |
 //! | `HOPOS_MEMORY` | het app-geheugen in bytes waar Hop tegen plant | 256 MiB |
 //! | `HOPOS_S3_ENDPOINT`, `_BUCKET`, `_REGION`, `_KEY`, `_SECRET`, `_PATHSTYLE` | de bucket van de node: de object-store van de apps, en met `HOPOS_LOCK_TYPE=s3` de lock van de cluster | geen |
 //! | `HOPOS_INIT_JOBS` | de init-jobs als één JSON-array (`hopos.init[]`) | [`INIT_JOBS_FILE`] als die er is |
@@ -60,8 +59,6 @@ pub const ENV_SYSTEM_CORE: &str = "HOPOS_SYSTEM_CORE";
 /// De sharegroup van Hop zelf (`hopos.hop.sharegroup`): jobs met die tag
 /// delen Hop's core, dus telt Hop haar vrij.
 pub const ENV_HOP_GROUP: &str = "HOPOS_HOP_GROUP";
-/// Kan het board koud flippen ([`ColdFlip`]).
-pub const ENV_COLD_FLIP: &str = "HOPOS_COLD_FLIP";
 /// Het app-geheugen.
 pub const ENV_MEMORY: &str = "HOPOS_MEMORY";
 /// De init-jobs als JSON-array.
@@ -82,31 +79,6 @@ pub const ENV_S3_PATHSTYLE: &str = "HOPOS_S3_PATHSTYLE";
 /// De init-jobs als bestand, in het volume van Hop, als de env ze niet
 /// droeg.
 pub const INIT_JOBS_FILE: &str = "/hop/init-jobs.json";
-
-/// Kan het board koud flippen (`HOPOS_COLD_FLIP`, het board-contract van
-/// de kern: HopOS `kern::nodecfg::ColdFlip`)?
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ColdFlip {
-    /// `yes`: vragen, de kern weigert zelf als het niet kan.
-    Yes,
-    /// `no`: nooit (geen PSCI, de M4).
-    No,
-    /// `fresh`: alleen zolang er nog nooit een app-core draaide (de Pi 5:
-    /// CPU_OFF keert daar niet terug).
-    Fresh,
-}
-
-impl ColdFlip {
-    /// De waarde uit de env.
-    fn parse(v: &str) -> Option<Self> {
-        match v {
-            "yes" => Some(Self::Yes),
-            "no" => Some(Self::No),
-            "fresh" => Some(Self::Fresh),
-            _ => None,
-        }
-    }
-}
 
 /// De S3-instellingen van de cluster.
 #[derive(Clone, PartialEq, Eq)]
@@ -172,8 +144,6 @@ pub struct BootConfig {
     pub system_core: bool,
     /// De sharegroup van Hop zelf (`HOPOS_HOP_GROUP`, standaard `hop`).
     pub hop_group: String,
-    /// Kan het board koud flippen (`HOPOS_COLD_FLIP`).
-    pub cold_flip: ColdFlip,
     /// Het app-geheugen in bytes.
     pub memory: u64,
     /// De clusteropslag, als endpoint en bucket er allebei zijn.
@@ -196,7 +166,6 @@ impl fmt::Debug for BootConfig {
             .field("cores", &self.cores)
             .field("system_core", &self.system_core)
             .field("hop_group", &self.hop_group)
-            .field("cold_flip", &self.cold_flip)
             .field("memory", &self.memory)
             .field("s3", &self.s3)
             .field("init_jobs", &self.init_jobs.as_ref().map(String::len))
@@ -305,11 +274,6 @@ impl BootConfig {
         // waarheid (de LicheeRV: Hop op de enige app-core), en plaatst alles
         // via `system`.
         let cores: u32 = required(&get, ENV_CORES)?;
-        let cold: String = required(&get, ENV_COLD_FLIP)?;
-        let cold_flip = ColdFlip::parse(&cold).ok_or(BootError::Bad {
-            var: ENV_COLD_FLIP,
-            value: cold,
-        })?;
         Ok(Self {
             node_id: get(ENV_NODE).unwrap_or_else(|| alloc::format!("hopos-{slot}")),
             slot: u32::try_from(slot).unwrap_or(u32::MAX),
@@ -322,7 +286,6 @@ impl BootConfig {
             cores,
             system_core,
             hop_group,
-            cold_flip,
             memory: required(&get, ENV_MEMORY)?,
             s3: s3(&get),
             init_jobs: get(ENV_INIT_JOBS).filter(|j| !j.trim().is_empty()),

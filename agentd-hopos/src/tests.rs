@@ -29,7 +29,7 @@ use sync::mpsc::Mailbox;
 use sync::spsc::Channel;
 
 use crate::download::{Orders, Pieces, download_task};
-use crate::env::{BootConfig, BootError, ColdFlip};
+use crate::env::{BootConfig, BootError};
 use crate::{Answer, Handoff, Hub, Images, Kept, Node, Port, Question, Sink};
 
 const KEY: &[u8] = b"test-key";
@@ -80,7 +80,6 @@ fn cfg_with(extra: &[(&'static str, &'static str)]) -> BootConfig {
     env.insert("HOPOS_NODE_IP", "10.0.0.5");
     env.insert("HOPOS_CORES", "4");
     env.insert("HOPOS_MEMORY", "1073741824");
-    env.insert("HOPOS_COLD_FLIP", "yes");
     env.extend(extra.iter().copied());
     BootConfig::from_env(|k| env.get(k).map(|v| String::from(*v)), 2, "10.100.0.2").unwrap()
 }
@@ -261,16 +260,6 @@ fn post_a_job_and_the_kernel_places_it() {
 /// Een node met web geplaatst en een kernbundel op de server; de nep-kern
 /// neemt de FLIP aan als `flip_ok`.
 fn placed_for_a_flip(flip_ok: bool) -> (TestNode, FakeKern) {
-    let (mut n, k) = ready_for_a_flip(flip_ok, &[]);
-    http(&mut n, Port::Leader, wire("POST", "/v1/jobs", JOB));
-    assert!(k.0.borrow().slots[&1].placed);
-    n.take_lines();
-    (n, k)
-}
-
-/// Een node met `env` erbij en een kernbundel op de server, nog zonder
-/// taak; de nep-kern neemt de FLIP aan als `flip_ok`.
-fn ready_for_a_flip(flip_ok: bool, env: &[(&'static str, &'static str)]) -> (TestNode, FakeKern) {
     let k = FakeKern::new(4);
     k.0.borrow_mut().flip_ok = flip_ok;
     let sys = KernSys::new(k.client(), 4);
@@ -280,140 +269,59 @@ fn ready_for_a_flip(flip_ok: bool, env: &[(&'static str, &'static str)]) -> (Tes
         String::from("http://images/k.flip"),
         b"\x7fELF-a-kernel-bundle".to_vec(),
     );
-    let mut n = Node::new(&cfg_with(env), sys, MemImages::new(images), T0);
+    let mut n = Node::new(&cfg(), sys, MemImages::new(images), T0);
+    http(&mut n, Port::Leader, wire("POST", "/v1/jobs", JOB));
+    assert!(k.0.borrow().slots[&1].placed);
     n.take_lines();
     (n, k)
 }
 
-/// Hop weigerde de koude flip zelf: een 502 met `why`, één regel, en de
-/// kern zag geen stop, geen bundel en geen FLIP.
-fn refused_by_hop(n: &mut TestNode, k: &FakeKern, why: &str) {
-    let ops_before = k.0.borrow().ops.len();
-    let (status, body) = cold_flip(n);
-    assert_eq!(status, 502, "{body}");
-    assert!(body.contains(why), "{body}");
-    let lines = n.take_lines();
-    assert_eq!(lines.len(), 1, "{lines:?}");
-    assert!(
-        lines[0].contains("HOP_FLIP_FAIL") && lines[0].contains(why),
-        "{lines:?}"
-    );
-    let st = k.0.borrow();
-    assert!(
-        st.ops[ops_before..]
-            .iter()
-            .all(|&o| o != PrivOp::StopSlot.op()
-                && o != PrivOp::StartSlot.op()
-                && o != PrivOp::Flip.op()),
-        "{:?}",
-        &st.ops[ops_before..]
-    );
-}
-
-/// De M4 (`HOPOS_COLD_FLIP=no`): geen PSCI, dus Hop weigert koud meteen,
-/// en de taak draait door.
+/// Alleen warm (Derek, 01-11): de taken draaien door, ja of nee. Een
+/// weigering van de kern is een 502 aan de aanroeper, het bundelslot is
+/// opgeruimd en er stopt niets; een koude vraag is een 400.
 #[test]
-fn a_board_without_psci_refuses_cold_before_any_stop() {
-    let (mut n, k) = ready_for_a_flip(true, &[("HOPOS_COLD_FLIP", "no")]);
-    http(&mut n, Port::Leader, wire("POST", "/v1/jobs", JOB));
-    n.take_lines();
-    refused_by_hop(&mut n, &k, "cold flip: no PSCI on this board, ask warm");
-    assert!(k.0.borrow().slots[&1].placed);
-    assert_eq!(
-        n.agent().tasks().next().unwrap().state,
-        types::TaskState::Running
-    );
-    placed_matches_the_agent(&mut n);
-    // Warm mag wel.
-    let sum = "ab".repeat(32);
-    let body = format!(r#"{{"url":"http://images/k.flip","sha256":"{sum}"}}"#);
-    let (status, body) = http(&mut n, Port::Agent, wire("POST", "/flip", &body));
-    assert_eq!(status, 202, "{body}");
-}
-
-/// De Pi 5 (`HOPOS_COLD_FLIP=fresh`) met Hop op de OS-core: zonder
-/// plaatsing op een app-core gaat de koude flip door, een job in `system`
-/// telt niet, en na de eerste plaatsing daarbuiten weigert Hop zelf.
-#[test]
-fn a_fresh_board_flips_cold_until_an_app_core_ran() {
-    let fresh = [
-        ("HOPOS_COLD_FLIP", "fresh"),
-        ("HOPOS_HOP_GROUP", "system"),
-        ("HOPOS_SYSTEM_CORE", "1"),
-    ];
-    let (mut n, k) = ready_for_a_flip(true, &fresh);
-    let (status, body) = cold_flip(&mut n);
-    assert_eq!(status, 202, "{body}");
-    assert!(k.0.borrow().ops.contains(&PrivOp::Flip.op()));
-
-    let (mut n, k) = ready_for_a_flip(true, &fresh);
-    let sys_job = r#"{"name":"sys","artifacts":[{"url":"http://images/web.elf"}],"cpu_shares":1024,"memory_limit":33554432,"tags":{"sharegroup":"system"}}"#;
-    let (status, body) = http(&mut n, Port::Leader, wire("POST", "/v1/jobs", sys_job));
-    assert!((200..300).contains(&status), "{status} {body}");
-    assert!(k.0.borrow().slots[&1].placed);
-    n.take_lines();
-    let (status, body) = cold_flip(&mut n);
-    assert_eq!(status, 202, "{body}");
-
-    let (mut n, k) = ready_for_a_flip(true, &fresh);
-    http(&mut n, Port::Leader, wire("POST", "/v1/jobs", JOB));
-    assert!(k.0.borrow().slots[&1].placed);
-    n.take_lines();
-    refused_by_hop(
-        &mut n,
-        &k,
-        "cold flip: CPU_OFF has no way back on this board and an app core ran, ask warm",
-    );
-    assert_eq!(
-        n.agent().tasks().next().unwrap().state,
-        types::TaskState::Running
-    );
-    // Ook na het stoppen van de job: de core draaide, en dat blijft zo.
-    http(&mut n, Port::Leader, wire("DELETE", "/v1/jobs/web", ""));
-    refused_by_hop(
-        &mut n,
-        &k,
-        "cold flip: CPU_OFF has no way back on this board and an app core ran, ask warm",
-    );
-}
-
-/// `fresh` met Hop op een eigen app-core: die core draait al, dus nooit koud.
-#[test]
-fn a_fresh_board_with_hop_on_an_app_core_never_flips_cold() {
-    let (mut n, k) = ready_for_a_flip(true, &[("HOPOS_COLD_FLIP", "fresh")]);
-    refused_by_hop(
-        &mut n,
-        &k,
-        "cold flip: CPU_OFF has no way back on this board and an app core ran, ask warm",
-    );
-}
-
-/// `yes` (en een oude kern zonder de sleutel): zoals voorheen, Hop stopt
-/// en vraagt; de kern beslist.
-#[test]
-fn a_board_that_flips_cold_stops_and_asks_as_before() {
-    for env in [&[("HOPOS_COLD_FLIP", "yes")][..], &[]] {
-        let (mut n, k) = ready_for_a_flip(false, env);
-        http(&mut n, Port::Leader, wire("POST", "/v1/jobs", JOB));
-        n.take_lines();
-        let (status, body) = cold_flip(&mut n);
-        assert_eq!(status, 502, "{body}");
-        assert!(body.contains("kernel refused the flip"), "{body}");
+fn a_flip_is_warm_and_a_refusal_is_a_no() {
+    let flip = |n: &mut TestNode, extra: &str| {
+        let sum = "ab".repeat(32);
+        let body = format!(r#"{{"url":"http://images/k.flip","sha256":"{sum}"{extra}}}"#);
+        http(n, Port::Agent, wire("POST", "/flip", &body))
+    };
+    for ok in [true, false] {
+        let (mut n, k) = placed_for_a_flip(ok);
+        let (status, body) = flip(&mut n, "");
         let lines = n.take_lines();
-        assert!(
-            lines
-                .iter()
-                .any(|l| l.contains("HOP_FLIP_COLD_STOP stopped=1")),
-            "{lines:?}"
-        );
+        if ok {
+            assert_eq!(status, 202, "{body}");
+            assert!(
+                lines.iter().any(|l| l.contains("HOP_FLIP_ACCEPTED")),
+                "{lines:?}"
+            );
+        } else {
+            assert_eq!(status, 502, "{body}");
+            assert!(body.contains("kernel refused the flip"), "{body}");
+            assert!(
+                lines.iter().any(|l| l.contains("HOP_FLIP_FAIL")),
+                "{lines:?}"
+            );
+            let jobs: Vec<String> = k.0.borrow().slots.values().map(|s| s.job.clone()).collect();
+            assert_eq!(jobs, ["web"], "the bundle slot is gone");
+        }
         assert!(k.0.borrow().ops.contains(&PrivOp::Flip.op()));
+        let web =
+            k.0.borrow()
+                .slots
+                .values()
+                .any(|s| s.job == "web" && s.placed);
+        assert!(web, "the task runs on");
+        assert_eq!(
+            n.agent().tasks().next().unwrap().state,
+            types::TaskState::Running
+        );
+        placed_matches_the_agent(&mut n);
     }
-}
-
-fn cold_flip(n: &mut TestNode) -> (u16, String) {
-    let sum = "ab".repeat(32);
-    let body = format!(r#"{{"url":"http://images/k.flip","sha256":"{sum}","cold":true}}"#);
-    http(n, Port::Agent, wire("POST", "/flip", &body))
+    let (mut n, _k) = placed_for_a_flip(true);
+    let (status, body) = flip(&mut n, r#","cold":true"#);
+    assert_eq!(status, 400, "{body}");
 }
 
 /// Wat de leader geplaatst telt en wat de agent heeft, moet hetzelfde zijn.
@@ -421,88 +329,6 @@ fn placed_matches_the_agent(n: &mut TestNode) {
     let (_, body) = http(n, Port::Agent, wire("GET", "/v1/status", ""));
     assert!(body.contains("\"web\":1"), "{body}");
     assert_eq!(n.agent().placed_task_counts().get("web"), Some(&1));
-}
-
-/// De Pi 5 (03-10): de kern weigert de koude flip ná de stop van de
-/// taken. Ze komen terug, en de leader telt niets wat de agent niet heeft.
-#[test]
-fn a_refused_cold_flip_restarts_the_stopped_tasks() {
-    let (mut n, k) = placed_for_a_flip(false);
-    let (status, body) = cold_flip(&mut n);
-    assert_eq!(status, 502, "{body}");
-    let lines = n.take_lines();
-    let at = |m: &str| lines.iter().position(|l| l.contains(m));
-    assert!(at("HOP_FLIP_COLD_STOP stopped=1").is_some(), "{lines:?}");
-    assert!(at("HOP_FLIP_FAIL").is_some(), "{lines:?}");
-    let back = lines
-        .iter()
-        .find(|l| l.contains("HOP_FLIP_COLD_BACK"))
-        .unwrap_or_else(|| panic!("{lines:?}"));
-    assert!(back.contains("1 stopped task(s) restart"), "{back}");
-    // Gestopt, en weer geplaatst; het bundelslot is opgeruimd.
-    assert!(k.0.borrow().ops.contains(&PrivOp::StopSlot.op()));
-    let slots: Vec<String> = k.0.borrow().slots.values().map(|s| s.job.clone()).collect();
-    assert_eq!(slots, ["web"]);
-    assert_eq!(
-        n.agent().tasks().next().unwrap().state,
-        types::TaskState::Running
-    );
-    placed_matches_the_agent(&mut n);
-}
-
-/// De kern nam de koude flip aan (202) maar sprong niet: een Hop die na
-/// de wachttijd nog leeft, herstart de gestopte taken.
-#[test]
-fn an_accepted_cold_flip_that_never_jumps_brings_the_tasks_back() {
-    let (mut n, k) = placed_for_a_flip(true);
-    let (status, body) = cold_flip(&mut n);
-    assert_eq!(status, 202, "{body}");
-    let lines = n.take_lines();
-    assert!(
-        lines.iter().any(|l| l.contains("HOP_FLIP_ACCEPTED")),
-        "{lines:?}"
-    );
-    // Gestopt bij de kern, maar het record blijft: de leader telt hem nog,
-    // en terecht.
-    assert!(k.0.borrow().slots.is_empty());
-    assert_eq!(
-        n.agent().tasks().next().unwrap().state,
-        types::TaskState::Stopping
-    );
-    placed_matches_the_agent(&mut n);
-    // Binnen de wachttijd: niets.
-    tick(&mut n, T0 + 29 * types::time::SECOND);
-    assert!(k.0.borrow().slots.is_empty());
-    assert!(
-        !n.take_lines()
-            .iter()
-            .any(|l| l.contains("HOP_FLIP_COLD_BACK"))
-    );
-    // Erna: de kern sprong niet, dus de taak herstart.
-    tick(&mut n, T0 + 31 * types::time::SECOND);
-    let lines = n.take_lines();
-    assert!(
-        lines.iter().any(|l| l.contains("HOP_FLIP_COLD_BACK")),
-        "{lines:?}"
-    );
-    assert!(
-        k.0.borrow()
-            .slots
-            .values()
-            .any(|s| s.job == "web" && s.placed)
-    );
-    assert_eq!(
-        n.agent().tasks().next().unwrap().state,
-        types::TaskState::Running
-    );
-    placed_matches_the_agent(&mut n);
-    // Eén keer: de volgende tik zegt het niet opnieuw.
-    tick(&mut n, T0 + 62 * types::time::SECOND);
-    assert!(
-        !n.take_lines()
-            .iter()
-            .any(|l| l.contains("HOP_FLIP_COLD_BACK"))
-    );
 }
 
 /// Een vervangen artifact onder dezelfde URL: de volgende plaatsing krijgt het nieuwe image.
@@ -598,7 +424,6 @@ fn boot_config_fails_closed_without_a_key() {
         let v = match k {
             "HOPOS_INSECURE" => "1",
             "HOPOS_CORES" => "2",
-            "HOPOS_COLD_FLIP" => "yes",
             "HOPOS_MEMORY" => "1073741824",
             _ => return None,
         };
@@ -610,7 +435,7 @@ fn boot_config_fails_closed_without_a_key() {
     assert_eq!((c.port, c.leader_port()), (8080, 9080));
     assert_eq!(c.node_ip, "10.100.0.3");
     // Wat de kern altijd geeft, heeft geen standaard: zonder is de config fout.
-    for var in ["HOPOS_CORES", "HOPOS_COLD_FLIP", "HOPOS_MEMORY"] {
+    for var in ["HOPOS_CORES", "HOPOS_MEMORY"] {
         let without = |k: &str| (k != var).then(|| insecure(k)).flatten();
         assert_eq!(
             BootConfig::from_env(without, 3, "x"),
@@ -633,11 +458,7 @@ fn boot_config_fails_closed_without_a_key() {
 
 #[test]
 fn the_system_core_comes_from_the_env() {
-    let base = [
-        ("HOPOS_INSECURE", "1"),
-        ("HOPOS_MEMORY", "1073741824"),
-        ("HOPOS_COLD_FLIP", "yes"),
-    ];
+    let base = [("HOPOS_INSECURE", "1"), ("HOPOS_MEMORY", "1073741824")];
     let conf = |pairs: &[(&str, &'static str)]| {
         let get = |k: &str| {
             pairs
@@ -667,18 +488,6 @@ fn the_system_core_comes_from_the_env() {
         with(&[("HOPOS_CORES", "3"), ("HOPOS_SYSTEM_CORE", "0")]),
         (3, false)
     );
-    // Het board-contract van de koude flip; iets anders is een fout.
-    let cold = |v: &'static str| conf(&[("HOPOS_CORES", "1"), ("HOPOS_COLD_FLIP", v)]);
-    assert_eq!(cold("yes").unwrap().cold_flip, ColdFlip::Yes);
-    assert_eq!(cold("no").unwrap().cold_flip, ColdFlip::No);
-    assert_eq!(cold("fresh").unwrap().cold_flip, ColdFlip::Fresh);
-    assert!(matches!(
-        cold("maybe"),
-        Err(BootError::Bad {
-            var: "HOPOS_COLD_FLIP",
-            ..
-        })
-    ));
 }
 
 #[test]
@@ -988,7 +797,6 @@ fn the_key_wins_over_insecure_and_secrets_stay_out_of_debug() {
     env.insert("HOPOS_INIT_JOBS", r#"[{"name":"a"}]"#);
     env.insert("HOPOS_CORES", "1");
     env.insert("HOPOS_MEMORY", "268435456");
-    env.insert("HOPOS_COLD_FLIP", "yes");
     let c =
         BootConfig::from_env(|k| env.get(k).map(|v| String::from(*v)), 1, "10.100.0.1").unwrap();
     assert!(!c.insecure && c.insecure_ignored);

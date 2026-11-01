@@ -20,33 +20,19 @@
 //! als 502 met de reden terug, want daarna is er niets meer om naar te
 //! kijken.
 //!
-//! De KOUDE flip (`"cold": true`, 29-09) is dezelfde weg met één vlag in
-//! `n` van de FLIP ([`FLIP_COLD`](abi::systemapi::FLIP_COLD)) en één stap ertussen: na de download en
-//! vóór de FLIP stopt Hop zijn eigen taken op deze node (`node.rs`), zodat
-//! de kern alleen nog stopt wat Hop niet kende. De kern springt dan zonder
-//! bewoners over te dragen en start Hop koud. Geclusterd plaatst de leader
-//! de jobs daarna opnieuw (de clusterstaat staat in de object-store);
-//! standalone komen alleen de init-jobs terug, want de staat die Hop bij
-//! de kern legt ([`hopos_runner::state`]) sterft met de oude kern. De agent
-//! houdt de gestopte taken vast tot de sprong: weigert de kern (de FLIP
-//! geeft een fout, of hij nam hem aan en sprong toch niet, de Pi 5 op
-//! 03-10), dan herstarten ze (`HOP_FLIP_COLD_BACK`) en klopt de telling van
-//! de leader nog.
-//!
 //! Dezelfde stroom draagt een nieuw image van Hop zelf ([`fetch_raw`] met
 //! [`abi::systemapi::HOP_IMAGE_JOB`], zie [`crate::restart`]).
 //!
-//! Wat Hop al weet, vraagt hij niet: zegt het board-contract van de kern
-//! (`HOPOS_COLD_FLIP`, [`crate::env::ColdFlip`]) dat koud niet kan (`no`,
-//! of `fresh` nadat er iets op een app-core draaide), dan is de koude flip
-//! meteen een 502, zonder download en zonder dat er een taak stopt.
+//! Alleen warm (Derek, 01-11): de koude flip (de taken stoppen, de kern
+//! springt zonder ze en start Hop koud) is weg, in Hop en in de kern. Een
+//! flip die de kern weigert, is een nee aan de aanroeper.
 
 use alloc::format;
 use alloc::string::String;
 use core::future::Future;
 
 use abi::layout::ABI_TAIL;
-use abi::systemapi::{FLIP_BUNDLE_JOB, FLIP_COLD, PrivOp};
+use abi::systemapi::{FLIP_BUNDLE_JOB, PrivOp};
 use hopos_runner::{Call, KernSys};
 use runner::{Slot, StartSpec, Streamed, SystemApi};
 
@@ -58,23 +44,17 @@ const FLIP_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(20);
 
 /// De flip-call van de kern, naast de gewone [`SystemApi`].
 pub trait KernFlip {
-    /// `PrivOp::FLIP` op `slot` met de verwachte som als 64 hex-tekens;
-    /// `cold` zet [`FLIP_COLD`].
-    fn flip(
-        &mut self,
-        slot: Slot,
-        sha256_hex: &str,
-        cold: bool,
-    ) -> impl Future<Output = Result<(), String>>;
+    /// `PrivOp::FLIP` op `slot` met de verwachte som als 64 hex-tekens.
+    fn flip(&mut self, slot: Slot, sha256_hex: &str) -> impl Future<Output = Result<(), String>>;
 }
 
 impl<C: Call> KernFlip for KernSys<C> {
-    async fn flip(&mut self, slot: Slot, sha256_hex: &str, cold: bool) -> Result<(), String> {
+    async fn flip(&mut self, slot: Slot, sha256_hex: &str) -> Result<(), String> {
         let req = applib::sys::Req {
             op: PrivOp::Flip.op(),
             seq: 0,
             off: u64::from(slot.0),
-            n: if cold { FLIP_COLD } else { 0 },
+            n: 0,
             path: sha256_hex,
             data: &[],
         };
@@ -191,11 +171,11 @@ where
 
 /// Vraagt de flip van de bundel in `slot` ([`fetch`]). `Ok` is "de kern
 /// nam hem aan en springt zo"; een fout ruimt het slot op.
-pub async fn ask<S>(sys: &mut S, slot: Slot, sha256: &str, cold: bool) -> Result<(), String>
+pub async fn ask<S>(sys: &mut S, slot: Slot, sha256: &str) -> Result<(), String>
 where
     S: SystemApi + KernFlip,
 {
-    let r = sys.flip(slot, sha256, cold).await;
+    let r = sys.flip(slot, sha256).await;
     if r.is_err() {
         // De kern geeft een geweigerde bundel zelf terug; een FLIP die hem
         // nooit bereikte, laat het slot staan. Een stop op een leeg slot
@@ -206,20 +186,14 @@ where
 }
 
 /// Haalt de bundel op, stroomt hem de kern in en vraagt de flip: [`fetch`]
-/// en dan [`ask`], zonder stap ertussen (de warme flip).
-pub async fn flip<S, I>(
-    sys: &mut S,
-    images: &mut I,
-    url: &str,
-    sha256: &str,
-    cold: bool,
-) -> Result<(), String>
+/// en dan [`ask`].
+pub async fn flip<S, I>(sys: &mut S, images: &mut I, url: &str, sha256: &str) -> Result<(), String>
 where
     S: SystemApi + KernFlip,
     I: Images,
 {
     let slot = fetch(sys, images, url).await?;
-    ask(sys, slot, sha256, cold).await
+    ask(sys, slot, sha256).await
 }
 
 #[cfg(test)]
@@ -278,13 +252,7 @@ mod tests {
             send: 100,
         };
         let sha = "ab".repeat(32);
-        let r = block_on(flip(
-            &mut sys,
-            &mut img,
-            "http://10.0.2.2/b.flip",
-            &sha,
-            false,
-        ));
+        let r = block_on(flip(&mut sys, &mut img, "http://10.0.2.2/b.flip", &sha));
         // De nep-kern kent geen flip: de weigering komt terug als tekst, en
         // het gereserveerde slot is opgeruimd.
         let e = r.unwrap_err();
@@ -300,27 +268,6 @@ mod tests {
     }
 
     #[test]
-    fn a_cold_flip_fetches_first_and_asks_with_the_same_slot() {
-        let k = FakeKern::new(4);
-        let mut sys = KernSys::new(k.client(), 4);
-        let mut img = OneFile {
-            bytes: bundle(),
-            send: 100,
-        };
-        // Eerst de download (daar stopt node.rs de taken), dan de vraag.
-        let slot = block_on(fetch(&mut sys, &mut img, "http://10.0.2.2/b.flip")).unwrap();
-        assert!(
-            k.0.borrow().slots.contains_key(&u64::from(slot.0)),
-            "the bundle slot is kept"
-        );
-        let e = block_on(ask(&mut sys, slot, &"cd".repeat(32), true)).unwrap_err();
-        assert!(e.contains("kernel refused the flip"), "{e}");
-        let st = k.0.borrow();
-        assert!(st.slots.is_empty(), "bundle slot left behind");
-        assert!(st.ops.contains(&abi::systemapi::PrivOp::Flip.op()));
-    }
-
-    #[test]
     fn a_short_download_never_asks_the_flip() {
         let k = FakeKern::new(4);
         let mut sys = KernSys::new(k.client(), 4);
@@ -333,7 +280,6 @@ mod tests {
             &mut img,
             "http://10.0.2.2/b.flip",
             &"00".repeat(32),
-            false,
         ));
         assert!(r.unwrap_err().contains("ended early"));
         let st = k.0.borrow();

@@ -395,7 +395,6 @@ fn boot_cfg() -> BootConfig {
             ("HOPOS_NODE_IP", "10.0.0.5"),
             ("HOPOS_CORES", "4"),
             ("HOPOS_MEMORY", "1073741824"),
-            ("HOPOS_COLD_FLIP", "yes"),
         ]),
         2,
         "10.100.0.2",
@@ -745,7 +744,6 @@ fn run_on_licheerv(jobs: &[&str]) -> (Vec<u16>, Vec<String>) {
         ("HOPOS_NODE", "lichee"),
         ("HOPOS_CORES", "0"),
         ("HOPOS_MEMORY", "268435456"),
-        ("HOPOS_COLD_FLIP", "no"),
         ("HOPOS_SYSTEM_CORE", "1"),
     ];
     let cfg = BootConfig::from_env(env(&pairs), 2, "10.100.0.2").unwrap();
