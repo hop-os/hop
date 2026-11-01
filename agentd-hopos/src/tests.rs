@@ -707,7 +707,7 @@ fn a_fresh_resident_stops_what_the_kernel_still_runs() {
     // staat, dus de bewoner in slot 2 is van niemand en gaat weg.
     let sys = KernSys::new(k.client(), 4);
     let mut again = Node::new(&cfg(), sys, MemImages::new(BTreeMap::new()), T0);
-    assert_eq!(block_on(again.restore(T0)), Kept::Unsupported);
+    assert_eq!(block_on(again.restore(T0)), Ok(Kept::Unsupported));
     assert!(Kept::Unsupported.is_clean(), "the init jobs seed as before");
     block_on(again.sweep_strays());
     assert_eq!(k.0.borrow().slots.keys().copied().collect::<Vec<_>>(), [1]);
@@ -1315,7 +1315,7 @@ fn a_restarted_hop_adopts_what_the_kernel_still_runs() {
     drop(n);
 
     let mut again = next_hop(&k);
-    let kept = block_on(again.restore(T0 + 2 * SECOND));
+    let kept = block_on(again.restore(T0 + 2 * SECOND)).unwrap();
     assert_eq!(kept, Kept::Adopted(1));
     assert!(!kept.is_clean(), "no init jobs over an adopted state");
     let lines = again.take_lines();
@@ -1357,7 +1357,10 @@ fn a_task_whose_slot_stopped_is_not_adopted_and_placed_again() {
     k.0.borrow_mut().slots.clear();
 
     let mut again = next_hop(&k);
-    assert_eq!(block_on(again.restore(T0 + 2 * SECOND)), Kept::Adopted(0));
+    assert_eq!(
+        block_on(again.restore(T0 + 2 * SECOND)),
+        Ok(Kept::Adopted(0))
+    );
     let lines = again.take_lines();
     assert!(
         lines.iter().any(|l| l.contains("HOP_ADOPTED n=0")),
@@ -1393,27 +1396,35 @@ fn the_own_slot_of_hop_is_never_adopted() {
     assert_eq!(blob.matches("\"pid\":1").count(), 1, "{blob}");
     k.0.borrow_mut().state = blob.replace("\"pid\":1", "\"pid\":2").into_bytes();
     let mut again = next_hop(&k);
-    assert_eq!(block_on(again.restore(T0 + 2 * SECOND)), Kept::Adopted(0));
+    assert_eq!(
+        block_on(again.restore(T0 + 2 * SECOND)),
+        Ok(Kept::Adopted(0))
+    );
     assert_eq!(again.runner().slot_of(&id), None);
     assert!(again.agent().tasks().all(|t| t.pid != 2));
 }
 
 #[test]
-fn an_unreadable_state_is_not_a_clean_one() {
-    let k = FakeKern::new(4);
+fn an_unreadable_state_stops_hop_before_the_sweep() {
+    let (mut n, k) = placed_for_a_restart();
+    tick(&mut n, T0 + SECOND);
+    drop(n);
     k.0.borrow_mut().state = b"{\"version\":1,\"tasks\":{}}".to_vec();
-    let mut n = next_hop(&k);
-    let kept = block_on(n.restore(T0));
-    assert_eq!(kept, Kept::Unreadable);
-    assert!(!kept.is_clean());
-    assert!(
-        n.take_lines()
-            .iter()
-            .any(|l| l.contains("HOP_KERNEL_STATE_FAIL"))
-    );
+    let mut again = next_hop(&k);
+    let f = block_on(again.restore(T0 + 2 * SECOND)).unwrap_err();
+    assert_eq!(f.code, crate::EXIT_INTERN);
+    assert!(f.why.contains("unreadable"), "{f:?}");
+    // Niet leeg begonnen: de binary stopt Hop, de veger komt niet aan de
+    // beurt en de app draait door tot de watchdog de node reset.
+    assert!(k.0.borrow().slots[&1].placed, "web runs on");
+    assert!(!k.0.borrow().ops.contains(&PrivOp::StopSlot.op()));
+    // Ook de staat van de leader in het blob: standalone zouden de jobs weg zijn.
+    k.0.borrow_mut().state = br#"{"version":2,"jobs":{},"tasks":{},"leader":"{nee"}"#.to_vec();
+    let f = block_on(next_hop(&k).restore(T0)).unwrap_err();
+    assert!(f.why.contains("the leader's state"), "{f:?}");
     // Niets: een schone start.
     let k = FakeKern::new(4);
-    assert_eq!(block_on(next_hop(&k).restore(T0)), Kept::Clean);
+    assert_eq!(block_on(next_hop(&k).restore(T0)), Ok(Kept::Clean));
 }
 
 #[test]
@@ -1482,7 +1493,7 @@ fn the_stop_bell_hands_the_last_state_to_the_kernel() {
     // En de volgende neemt hem over.
     assert_eq!(
         block_on(next_hop(&k).restore(T0 + SECOND)),
-        Kept::Adopted(1)
+        Ok(Kept::Adopted(1))
     );
 }
 
@@ -1885,16 +1896,12 @@ fn a_silent_kernel_at_the_restore_stops_hop_before_the_sweep() {
     drop(n);
     k.0.borrow_mut().drop_calls = 2;
     let mut again = next_hop(&k);
-    let kept = block_on(again.restore(T0 + 2 * SECOND));
-    assert_eq!(kept, Kept::Unreachable);
-    assert!(
-        !kept.is_clean(),
-        "never an empty start, never the init jobs"
-    );
+    let f = block_on(again.restore(T0 + 2 * SECOND)).unwrap_err();
+    assert_eq!(f.code, crate::EXIT_KERNEL);
+    assert!(f.why.contains("did not answer STATE_GET"), "{f:?}");
     // Niets gestopt en niets overgenomen: de binary stopt Hop hier
-    // (`HOP_FATAL step=restore`, EXIT_KERNEL), de veger komt niet aan de beurt.
+    // (`HOP_FATAL step=restore`), de veger komt niet aan de beurt.
     assert_eq!(again.agent().tasks().count(), 0);
     assert!(k.0.borrow().slots[&1].placed, "web runs on");
     assert!(!k.0.borrow().ops.contains(&PrivOp::StopSlot.op()));
-    assert_ne!(crate::EXIT_KERNEL, 0);
 }

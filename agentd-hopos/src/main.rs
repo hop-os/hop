@@ -96,7 +96,7 @@ use agentd_hopos::restart;
 use agentd_hopos::sntp::{self, NtpLink, PACKET};
 use agentd_hopos::{
     Answer, BootConfig, ClusterParts, Connect, EXIT_CONFIG, EXIT_INTERN, EXIT_KERNEL, Handoff,
-    HttpImages, Hub, Images, Kept, Node, Port, Question, Resolve,
+    HttpImages, Hub, Images, Node, Port, Question, Resolve,
 };
 use applib::appnet::{self, Endpoint, Net, NetError, SystemClient, TcpListener, TcpStream};
 use applib::rand::{JITTER_ROUNDS, Origin, Rng};
@@ -1021,14 +1021,13 @@ async fn resident(app: &'static App) {
     while let Some(l) = HOP_LOG.try_recv() {
         node.hop_line(&l);
     }
-    let kept = node.restore(now(app, exec)).await;
-    if kept == Kept::Unreachable {
-        // Nooit leeg beginnen omdat de kern zweeg: de veger zou elke app
-        // stoppen.
-        flush(&mut node);
-        let why = "the kernel did not answer STATE_GET; an empty start would stop every app";
-        fail(app, EXIT_KERNEL, "restore", why).await;
-    }
+    let kept = match node.restore(now(app, exec)).await {
+        Ok(k) => k,
+        Err(f) => {
+            flush(&mut node);
+            fail(app, f.code, "restore", f.why).await
+        }
+    };
     node.sweep_strays().await;
     flush(&mut node);
     if clustered {

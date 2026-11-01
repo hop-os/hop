@@ -57,11 +57,11 @@ use runner::{
 use types::time::{MILLISECOND, SECOND};
 use types::{Artifact, Driver, Job, Map, Nanos, SysUsage, Telemetry, Time};
 
-use crate::VERSION;
 use crate::download::{Order, Piece};
 use crate::env::{BootConfig, ColdFlip};
 use crate::forward::{Forward, Routed};
 use crate::local::Local;
+use crate::{EXIT_INTERN, EXIT_KERNEL, Fatal, VERSION};
 
 mod cluster;
 
@@ -119,15 +119,6 @@ pub enum Kept {
     Unsupported,
     /// De staat van de vorige Hop, met zoveel overgenomen kooien.
     Adopted(usize),
-    /// Er lag iets, maar het was niet te lezen. Een staat die niet te lezen
-    /// is, is geen lege staat: dan geen init-jobs (Go: nooit zaaien op een
-    /// opslagfout).
-    Unreadable,
-    /// De kern antwoordde niet op STATE_GET (de verbinding, geen weigering):
-    /// een harde fout. De binary stopt Hop met [`crate::EXIT_KERNEL`]; leeg
-    /// beginnen zou de veger elke app laten stoppen omdat de kern even
-    /// zweeg. De watchdog reset de node, en de koude boot begint schoon.
-    Unreachable,
 }
 
 impl Kept {
@@ -487,45 +478,49 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     /// agent zich opnieuw met wat hij nu draait. Een taak waarvan het slot
     /// niet meer draait, of al van een ander is, neemt hij niet over: die
     /// plaatst de leader opnieuw.
-    pub async fn restore(&mut self, now: Nanos) -> Kept {
+    ///
+    /// Een kern die niet antwoordt, of een staat die er is maar niet te lezen
+    /// is, is een [`Fatal`]: nooit leeg beginnen, want dan stopt de veger
+    /// elke app en zijn standalone de jobs weg (besluit H3, 01-11). De
+    /// watchdog reset de node, en de koude boot begint schoon, met de
+    /// init-jobs.
+    pub async fn restore(&mut self, now: Nanos) -> Result<Kept, Fatal> {
+        let unreadable = |why: String| Fatal {
+            code: EXIT_INTERN,
+            why: format!("the kernel's state for Hop is unreadable: {why}"),
+        };
         let blob = match self.runner.system_mut().load().await {
             Ok(Some(b)) => b,
-            Ok(None) => return Kept::Clean,
+            Ok(None) => return Ok(Kept::Clean),
             Err(e @ StoreError::Refused { .. }) => {
                 self.keep.refused = true;
                 self.lines.push(format!(
                     "hop: this kernel keeps no state for Hop ({e}); a restart of Hop stops every app HOP_KERNEL_STATE_NONE"
                 ));
-                return Kept::Unsupported;
+                return Ok(Kept::Unsupported);
             }
-            // De binary stopt Hop hier (`HOP_FATAL step=restore`).
-            Err(StoreError::Io) => return Kept::Unreachable,
-            Err(e) => {
-                self.lines.push(format!(
-                    "hop: the kernel's state for Hop not read: {e}; starting empty HOP_KERNEL_STATE_FAIL"
-                ));
-                return Kept::Unreadable;
+            Err(e @ StoreError::Io) => {
+                return Err(Fatal {
+                    code: EXIT_KERNEL,
+                    why: format!("the kernel did not answer STATE_GET ({e})"),
+                });
             }
+            Err(e) => return Err(unreadable(format!("{e}"))),
         };
         let h = match Handoff::parse(&blob) {
             Ok(Some(h)) => h,
-            Ok(None) => return Kept::Clean,
-            Err(e) => {
-                self.lines.push(format!(
-                    "hop: the kernel's state for Hop is unreadable ({} bytes): {e}; starting empty HOP_KERNEL_STATE_FAIL",
-                    blob.len()
-                ));
-                return Kept::Unreadable;
-            }
+            Ok(None) => return Ok(Kept::Clean),
+            Err(e) => return Err(unreadable(format!("{} bytes: {e}", blob.len()))),
         };
         drop(blob);
-        let n = self.adopt(now, h).await;
-        Kept::Adopted(n)
+        let n = self.adopt(now, h).await.map_err(unreadable)?;
+        Ok(Kept::Adopted(n))
     }
 
     /// De overname zelf: de kooien bij de runner, de records bij de agent,
-    /// standalone de leader. Geeft het aantal overgenomen kooien.
-    async fn adopt(&mut self, now: Nanos, h: Handoff) -> usize {
+    /// standalone de leader. Geeft het aantal overgenomen kooien, of waarom
+    /// de staat van de leader in het blob niet te lezen was.
+    async fn adopt(&mut self, now: Nanos, h: Handoff) -> Result<usize, String> {
         let own = self.own_slot;
         let mut want = Vec::new();
         for t in &h.tasks {
@@ -558,9 +553,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             if let Some(l) = h.leader
                 && let Err(e) = self.leader.load_committed_state(Some(l.as_bytes()))
             {
-                self.lines.push(format!(
-                    "hop: the leader's state in the kernel's state is unreadable: {e} HOP_KERNEL_STATE_FAIL"
-                ));
+                return Err(format!("the leader's state: {e}"));
             }
             if let Err(e) = self.register_with_placed(now) {
                 self.lines.push(format!(
@@ -578,7 +571,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             ));
         }
         self.drain(now).await;
-        n
+        Ok(n)
     }
 
     /// Legt de staat bij de kern neer als hij veranderde of als het ritme
@@ -717,8 +710,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     ///
     /// "Schoon" is aan de aanroeper én hier: de binary roept dit alleen aan
     /// als [`Node::restore`] geen staat vond ([`Kept::is_clean`]; een staat
-    /// die niet te lezen is, is geen lege staat, en een staat zonder jobs
-    /// is een operator die alles verwijderde), en hier zaait hij alleen in
+    /// zonder jobs is een operator die alles verwijderde), en hier zaait hij alleen in
     /// een leader zonder jobs. Zo overschrijft een zaadje nooit wat een
     /// operator of een vorige bewoner neerzette (Go: `agentloop`,
     /// `cleanBoot && len(l.GetJobs()) == 0`). Een spec die niet klopt, is

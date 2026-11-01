@@ -87,6 +87,16 @@ pub const EXIT_CONFIG: u64 = 4;
 /// die hij niet kan lezen.
 pub const EXIT_INTERN: u64 = 5;
 
+/// Een fout waarmee de start niet verder kan: de binary stopt Hop ermee
+/// (`fail` in main.rs, `HOP_FATAL`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fatal {
+    /// De exitcode per soort (`EXIT_*`).
+    pub code: u64,
+    /// De reden, voor de regel.
+    pub why: alloc::string::String,
+}
+
 /// De versie die de agent aan de leader meldt.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
