@@ -94,9 +94,9 @@ pub struct KernState {
     pub store_done: Vec<(u64, u16, u64, Vec<u8>)>,
     /// Het volgende ticket.
     pub next_ticket: u64,
-    /// Geen schijf: elke gewone bestandscall krijgt `STATUS_ERROR` met "no
-    /// storage layer on board", zoals `kern::system` zonder hopfs (de Pi's
-    /// zonder NVMe).
+    /// Geen schijf: elke gewone bestandscall krijgt `STATUS_NO_ENT` met "no
+    /// storage on this node", zoals `kern::system` zonder hopfs (de Pi's
+    /// zonder NVMe, hop-os 4dc42af): niet gevonden, net als op een lege schijf.
     pub no_storage: bool,
     /// De FLIP lukt: de kern neemt de bundel aan en geeft het slot terug,
     /// zoals `kern::system` vóór de sprong. Zonder: een weigering.
@@ -544,7 +544,13 @@ impl FakeKern {
                 k.store_done.push((req.off, h.status, req.n, rest.to_vec()));
                 ok(0, b"")
             }
-            None if k.no_storage => err("no storage layer on board"),
+            None if k.no_storage => answer(
+                req.op,
+                req.seq,
+                hopabi::STATUS_NO_ENT,
+                0,
+                b"no storage on this node",
+            ),
             None => match req.op {
                 hopabi::OP_TRUNCATE => {
                     let f = k.files.entry(String::from(path)).or_default();

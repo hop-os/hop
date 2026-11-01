@@ -63,7 +63,8 @@ use crate::env::BootConfig;
 use crate::forward::{Forward, Routed};
 use crate::local::Local;
 use crate::sntp::{ClockStep, Sample};
-use crate::{EXIT_INTERN, EXIT_KERNEL, Fatal, VERSION};
+use crate::{Fatal, VERSION};
+use abi::hopabi::{EXIT_INTERNAL, EXIT_KERNEL};
 
 mod cluster;
 
@@ -444,7 +445,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     /// init-jobs.
     pub async fn restore(&mut self, now: Nanos) -> Result<Kept, Fatal> {
         let unreadable = |why: String| Fatal {
-            code: EXIT_INTERN,
+            code: EXIT_INTERNAL,
             why: format!("the kernel's state for Hop is unreadable: {why}"),
         };
         let blob = match self.runner.system_mut().load().await {
@@ -506,7 +507,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
                 && let Err(e) = self.leader.load_committed_state(Some(l.as_bytes()))
             {
                 return Err(Fatal {
-                    code: EXIT_INTERN,
+                    code: EXIT_INTERNAL,
                     why: format!(
                         "the kernel's state for Hop is unreadable: the leader's state: {e}"
                     ),

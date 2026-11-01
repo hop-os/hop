@@ -1229,7 +1229,7 @@ fn an_unreadable_state_stops_hop_before_the_sweep() {
     k.0.borrow_mut().state = b"{\"version\":1,\"tasks\":{}}".to_vec();
     let mut again = next_hop(&k);
     let f = block_on(again.restore(T0 + 2 * SECOND)).unwrap_err();
-    assert_eq!(f.code, crate::EXIT_INTERN);
+    assert_eq!(f.code, abi::hopabi::EXIT_INTERNAL);
     assert!(f.why.contains("unreadable"), "{f:?}");
     // Niet leeg begonnen: de binary stopt Hop, de veger komt niet aan de
     // beurt en de app draait door tot de watchdog de node reset.
@@ -1639,7 +1639,7 @@ fn a_silent_kernel_at_the_restore_stops_hop_before_the_sweep() {
     k.0.borrow_mut().drop_calls = 2;
     let mut again = next_hop(&k);
     let f = block_on(again.restore(T0 + 2 * SECOND)).unwrap_err();
-    assert_eq!(f.code, crate::EXIT_KERNEL);
+    assert_eq!(f.code, abi::hopabi::EXIT_KERNEL);
     assert!(f.why.contains("did not answer STATE_GET"), "{f:?}");
     // Niets gestopt en niets overgenomen: de binary stopt Hop hier
     // (`HOP_FATAL step=restore`), de veger komt niet aan de beurt.

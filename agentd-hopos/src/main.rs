@@ -52,7 +52,7 @@
 //! `HOP_STRAY_STOPPED slot=N`, `HOP_RESTART`, `HOP_RESTART_ACCEPTED`,
 //! `HOP_RESTART_LEAVING why=replied|grace|bell`, `HOP_STOPPING`,
 //! `HOP_FATAL step=<stap>` (een start die niet lukt: Hop stopt met een
-//! exitcode per soort, `EXIT_KERNEL`, `EXIT_CONFIG` of `EXIT_INTERN`, en de
+//! exitcode per soort, `EXIT_KERNEL`, `EXIT_CONFIG` of `EXIT_INTERNAL`, en de
 //! watchdog reset de node; geen herhaallus), en de weigeringen en
 //! degradaties `HOP_RESTART_FAIL`, `HOP_KERNEL_STATE_FAIL`, `HOP_ADOPT_SKIPPED`, `HOPOS_API_INSECURE`,
 //! `HOP_SNTP_FAIL`, `HOP_CLOCK_FAIL`, `HOP_TLS_ENTROPY_WEAK`, `HOP_TLS_ENTROPY_HW`,
@@ -88,6 +88,7 @@ use core::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use core::task::Poll;
 use core::time::Duration;
 
+use abi::hopabi::{EXIT_CLOCK, EXIT_CONFIG, EXIT_INTERNAL, EXIT_KERNEL};
 use agentd_hopos::client::{Client, Idle};
 use agentd_hopos::download::{self, Orders, Piece, PieceRx, Pieces};
 use agentd_hopos::env::INIT_JOBS_FILE;
@@ -97,8 +98,8 @@ use agentd_hopos::mail::{DispatchQueue, Inbox, LeaseQueue, LinkQueue, Mail, Nap,
 use agentd_hopos::restart;
 use agentd_hopos::sntp::{self, NtpLink, PACKET, Sample};
 use agentd_hopos::{
-    Answer, BootConfig, ClusterParts, Connect, EXIT_CLOCK, EXIT_CONFIG, EXIT_INTERN, EXIT_KERNEL,
-    Handoff, HttpImages, Hub, Images, Node, Port, Question, Resolve,
+    Answer, BootConfig, ClusterParts, Connect, Handoff, HttpImages, Hub, Images, Node, Port,
+    Question, Resolve,
 };
 use applib::appnet::{self, Endpoint, Net, NetError, SystemClient, TcpListener, TcpStream};
 use applib::rand::{JITTER_ROUNDS, Rng};
@@ -705,9 +706,9 @@ async fn wake(
 /// in het volume, getoetst. `None` als er geen zijn.
 ///
 /// Over de verbinding van de eigenaar-taak (`c`): een eigen verbinding zou
-/// er een te veel zijn (`MAX_HOP_CONNS`). Geen bestand, of geen schijf (de
-/// kern weigert de stat dan: "no storage layer on board"), is geen
-/// init-jobs. Init-jobs die er zijn maar niet kloppen (te groot, geen
+/// er een te veel zijn (`MAX_HOP_CONNS`). Geen bestand is geen init-jobs;
+/// zonder schijf zegt de kern hetzelfde (`NotFound`, "no storage on this
+/// node", hop-os 4dc42af). Init-jobs die er zijn maar niet kloppen (te groot, geen
 /// UTF-8, een spec die de leader niet neemt) zijn een node zonder zijn
 /// basis: [`fail`] (besluit H7, 01-11), net als een kern die op de stat of
 /// de lees niet antwoordt.
@@ -728,14 +729,14 @@ async fn init_specs(app: &App, cfg: &BootConfig, c: &mut SystemClient) -> Option
     }
 }
 
-/// Leest [`INIT_JOBS_FILE`]; `None` zonder bestand of zonder schijf, een
-/// fout met zijn exitcode.
+/// Leest [`INIT_JOBS_FILE`]; `None` zonder bestand, een fout met zijn
+/// exitcode.
 async fn read_init_file(c: &mut SystemClient) -> Result<Option<String>, (u64, String)> {
     use applib::sys::Error;
     let kern = |e: Error| (EXIT_KERNEL, format!("{e}"));
     let size = match c.stat(INIT_JOBS_FILE).await {
         Ok(s) => usize::try_from(s).unwrap_or(usize::MAX),
-        Err(Error::NotFound { .. } | Error::Call { .. }) => return Ok(None),
+        Err(Error::NotFound { .. }) => return Ok(None),
         Err(e) => return Err(kern(e)),
     };
     if size > INIT_FILE_MAX {
@@ -909,7 +910,7 @@ async fn resident(app: &'static App) {
         Err(e) => {
             fail(
                 app,
-                EXIT_INTERN,
+                EXIT_INTERNAL,
                 "net",
                 format_args!("no network, no API: {e}"),
             )
@@ -959,7 +960,7 @@ async fn resident(app: &'static App) {
     )) {
         fail(
             app,
-            EXIT_INTERN,
+            EXIT_INTERNAL,
             "spawn",
             format_args!("the store task: {e}"),
         )
@@ -983,7 +984,7 @@ async fn resident(app: &'static App) {
     let Some((pieces_tx, mut pieces)) = PIECES.split() else {
         fail(
             app,
-            EXIT_INTERN,
+            EXIT_INTERNAL,
             "spawn",
             "the download queue was already taken",
         )
@@ -992,7 +993,7 @@ async fn resident(app: &'static App) {
     if let Err(e) = exec.spawn(download::download_task(images, &ORDERS, pieces_tx, &WANTED)) {
         fail(
             app,
-            EXIT_INTERN,
+            EXIT_INTERNAL,
             "spawn",
             format_args!("the download task: {e}"),
         )
@@ -1013,7 +1014,15 @@ async fn resident(app: &'static App) {
             // clusterstaat, niet de boot van deze node.
             match start_cluster(app, net, exec, &seen, cc, specs.take()).await {
                 Ok(parts) => Node::new_clustered(&seen, sys, images, now(app), parts),
-                Err(e) => fail(app, EXIT_INTERN, "spawn", format_args!("the cluster: {e}")).await,
+                Err(e) => {
+                    fail(
+                        app,
+                        EXIT_INTERNAL,
+                        "spawn",
+                        format_args!("the cluster: {e}"),
+                    )
+                    .await
+                }
             }
         }
     };
@@ -1073,7 +1082,7 @@ async fn resident(app: &'static App) {
     if let Err(e) = exec.spawn(clock) {
         fail(
             app,
-            EXIT_INTERN,
+            EXIT_INTERNAL,
             "spawn",
             format_args!("the clock task: {e}"),
         )
@@ -1090,7 +1099,7 @@ async fn resident(app: &'static App) {
         && let Some(jobs) = specs
     {
         if let Err(e) = node.seed_init_jobs(jobs, now(app)).await {
-            fail(app, EXIT_INTERN, "init", e).await;
+            fail(app, EXIT_INTERNAL, "init", e).await;
         }
         flush(&mut node);
     }
@@ -1114,7 +1123,7 @@ async fn resident(app: &'static App) {
             Err(e) => {
                 fail(
                     app,
-                    EXIT_INTERN,
+                    EXIT_INTERNAL,
                     "listen",
                     format_args!("port :{number}: {e}"),
                 )
@@ -1137,7 +1146,7 @@ async fn resident(app: &'static App) {
         if let Err(e) = spawned {
             fail(
                 app,
-                EXIT_INTERN,
+                EXIT_INTERNAL,
                 "spawn",
                 format_args!("the listeners: {e}"),
             )
