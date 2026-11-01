@@ -1299,11 +1299,15 @@ fn puts(k: &FakeKern) -> u32 {
 }
 
 #[test]
-fn the_state_reaches_the_kernel_after_a_change_and_on_the_beat() {
+fn the_state_reaches_the_kernel_only_when_a_next_hop_reads_it() {
     let (mut n, k) = placed_for_a_restart();
-    assert_eq!(puts(&k), 0, "a request alone writes nothing yet");
-    // De tik is de debounce: wat in de vorige seconde veranderde, gaat nu.
-    tick(&mut n, T0 + SECOND);
+    // De tik schrijft niets: het blob heeft alleen een lezer na HOP_RESTART.
+    for t in 1..=12 {
+        tick(&mut n, T0 + t * SECOND);
+    }
+    assert_eq!(puts(&k), 0);
+    // De stop-bel (en zo ook de herstart en het vertrek): één keer, alles.
+    block_on(n.on_stop(T0 + 13 * SECOND));
     assert_eq!(puts(&k), 1);
     let blob = String::from_utf8(k.0.borrow().state.clone()).unwrap();
     assert!(blob.contains("\"web\""), "{blob}");
@@ -1311,27 +1315,12 @@ fn the_state_reaches_the_kernel_after_a_change_and_on_the_beat() {
         blob.contains("\"leader\""),
         "standalone: the leader's jobs travel along"
     );
-    // Niets veranderd: geen nieuwe schrijf, tot het ritme.
-    tick(&mut n, T0 + 2 * SECOND);
-    tick(&mut n, T0 + 3 * SECOND);
-    let quiet = puts(&k);
-    assert!(
-        quiet <= 2,
-        "{quiet}: one more at most (the leader's own debounce)"
-    );
-    // Een warme kern-flip: de nieuwe kern heeft niets. Het ritme legt het
-    // blob opnieuw neer.
-    k.0.borrow_mut().state.clear();
-    tick(&mut n, T0 + 9 * SECOND);
-    assert!(k.0.borrow().state.is_empty(), "not yet: the beat is 10 s");
-    tick(&mut n, T0 + 14 * SECOND);
-    assert!(!k.0.borrow().state.is_empty(), "the beat put it back");
 }
 
 #[test]
 fn a_restarted_hop_adopts_what_the_kernel_still_runs() {
     let (mut n, k) = placed_for_a_restart();
-    tick(&mut n, T0 + SECOND);
+    block_on(n.on_stop(T0 + SECOND));
     let id = n.agent().tasks().next().unwrap().id.clone();
     drop(n);
 
@@ -1372,7 +1361,7 @@ fn a_restarted_hop_adopts_what_the_kernel_still_runs() {
 #[test]
 fn a_task_whose_slot_stopped_is_not_adopted_and_placed_again() {
     let (mut n, k) = placed_for_a_restart();
-    tick(&mut n, T0 + SECOND);
+    block_on(n.on_stop(T0 + SECOND));
     drop(n);
     // De app viel weg terwijl Hop herstartte: het slot is leeg.
     k.0.borrow_mut().slots.clear();
@@ -1410,7 +1399,7 @@ fn the_own_slot_of_hop_is_never_adopted() {
     // dat draait altijd, en is nooit een taak. Een slot dat stroomt of al
     // van een ander is, toetst de runner (`runner/src/tests.rs`).
     let (mut n, k) = placed_for_a_restart();
-    tick(&mut n, T0 + SECOND);
+    block_on(n.on_stop(T0 + SECOND));
     let id = n.agent().tasks().next().unwrap().id.clone();
     drop(n);
     let blob = String::from_utf8(k.0.borrow().state.clone()).unwrap();
@@ -1428,7 +1417,6 @@ fn the_own_slot_of_hop_is_never_adopted() {
 #[test]
 fn an_unreadable_state_stops_hop_before_the_sweep() {
     let (mut n, k) = placed_for_a_restart();
-    tick(&mut n, T0 + SECOND);
     drop(n);
     k.0.borrow_mut().state = b"{\"version\":1,\"tasks\":{}}".to_vec();
     let mut again = next_hop(&k);
@@ -1829,7 +1817,7 @@ fn an_sntp_failure_is_not_the_kernel_and_hop_stays() {
 #[test]
 fn a_silent_kernel_at_the_restore_stops_hop_before_the_sweep() {
     let (mut n, k) = placed_for_a_restart();
-    tick(&mut n, T0 + SECOND);
+    block_on(n.on_stop(T0 + SECOND));
     drop(n);
     k.0.borrow_mut().drop_calls = 2;
     let mut again = next_hop(&k);

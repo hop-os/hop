@@ -1347,22 +1347,6 @@ fn handoff_refuses_nonsense() {
     );
 }
 
-#[test]
-fn every_change_makes_the_state_dirty_once() {
-    let mut a = agent();
-    assert!(!a.take_dirty(), "a fresh agent has nothing to save");
-    let id = run_ok(&mut a, T0, job("keep"));
-    assert!(a.take_dirty());
-    assert!(!a.take_dirty(), "the flag is taken");
-    // Een tik zonder iets te doen verandert niets.
-    a.tick(T0 + S);
-    assert!(!a.take_dirty());
-    assert!(a.stop_task(&id));
-    assert!(a.take_dirty());
-    a.delete_job(T0 + 2 * S, "keep");
-    assert!(a.take_dirty());
-}
-
 /// Eén poll: de opslag hieronder antwoordt meteen, en een host-test heeft geen executor.
 fn ready<F: core::future::Future>(f: F) -> F::Output {
     let mut f = core::pin::pin!(f);
@@ -1399,7 +1383,6 @@ fn state_survives_restart_via_store() {
     let mut b = agent();
     b.adopt(h.jobs, h.tasks);
     assert_eq!(b.placed_task_counts().get("keep"), Some(&1));
-    assert!(b.take_dirty(), "an adopted state is written again");
 }
 
 // ---- agentloop/loop_test.go ----------------------------------------------------

@@ -27,10 +27,11 @@
 //!
 //! De staat van de agent (en standalone die van de leader) legt hij bij de
 //! kern neer, zodat een herstarte Hop zijn taken terugvindt
-//! ([`Node::restore`], `crate::restart`): na elke tik waarin hij veranderde
-//! (de tik is de debounce, 1 s, zoals `leader::PERSIST_DEBOUNCE`), elke
-//! [`STATE_REFRESH`] opnieuw, vlak vóór een herstart, en een laatste keer
-//! bij de stop-bel ([`Node::on_stop`]).
+//! ([`Node::restore`], `crate::restart`): vlak vóór een herstart, bij het
+//! vertrek erna en bij de stop-bel ([`Node::on_stop`]). Alleen daar: het
+//! blob heeft één lezer, de Hop na `HOP_RESTART`, en die vraag schrijft het
+//! zelf vlak ervoor (besluit S4, 01-11). Een schrijf op elke tik of op een
+//! ritme werd altijd overschreven voordat iemand hem las.
 //!
 //! De markers voor de console verzamelt hij als regels ([`Node::take_lines`]);
 //! de binary zet ze met `applib::log!` op het log, een test leest ze.
@@ -97,17 +98,6 @@ const ACTION_ROUNDS: usize = 16;
 /// die Hop liet staan (hoogstens 3 s per stuk) en de app-cores (1 s) over.
 const COLD_FLIP_WAIT: Nanos = 30 * SECOND;
 
-/// Hoe vaak Hop zijn staat bij de kern opnieuw neerlegt, ook als er niets
-/// veranderde.
-///
-/// Na een warme kern-flip draait Hop door, maar het blob ligt in het
-/// geheugen van de óude kern: de nieuwe heeft niets. Hop ziet de wissel
-/// niet (de system-client verbindt stil opnieuw), dus legt hij het blob
-/// gewoon op dit ritme opnieuw neer. Dat is één call met een paar KB per
-/// tien seconden; een herstart binnen tien seconden na een flip is de enige
-/// die dan nog een lege kern treft.
-pub(crate) const STATE_REFRESH: Nanos = 10 * SECOND;
-
 /// Wat [`Node::restore`] bij de start aantrof.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kept {
@@ -122,17 +112,6 @@ impl Kept {
     pub fn is_clean(self) -> bool {
         self == Self::Clean
     }
-}
-
-/// De staat bij de kern: wanneer hij weer moet.
-#[derive(Debug, Default)]
-struct Keep {
-    /// Veranderd sinds de laatste geslaagde schrijf.
-    dirty: bool,
-    /// Wanneer het blob hoe dan ook weer moet.
-    next: Nanos,
-    /// Mislukte schrijfpogingen op rij (luid, drie keer, dan tellen).
-    failures: u32,
 }
 
 /// Welke API een verzoek krijgt.
@@ -244,8 +223,6 @@ pub struct Node<S, I> {
     loads: VecDeque<Loading>,
     /// Het nummer van de volgende opdracht.
     next_seq: u64,
-    /// De staat bij de kern ([`Node::keep_state`]).
-    keep: Keep,
     /// De kern nam een herstart aan: deze Hop vertrekt zodra zijn antwoord
     /// de deur uit is ([`Node::take_leaving`], `crate::restart`).
     leaving: bool,
@@ -326,10 +303,6 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             app_core_used: cfg.hop_group != agent::SYSTEM_GROUP,
             loads: VecDeque::new(),
             next_seq: 1,
-            keep: Keep {
-                next: now.saturating_add(STATE_REFRESH),
-                ..Keep::default()
-            },
             leaving: false,
         }
     }
@@ -561,65 +534,18 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         Ok(n)
     }
 
-    /// Legt de staat bij de kern neer als hij veranderde of als het ritme
-    /// het zegt ([`STATE_REFRESH`]); na elke tik.
-    async fn keep_state(&mut self, now: Nanos) {
-        let mut changed = self.agent.take_dirty();
-        // Standalone is de leader van deze node ook staat die Hop moet
-        // meenemen; zijn eigen debounce zegt wanneer hij veranderde.
-        if self.cluster.is_none() && matches!(self.leader.poll_snapshot(Time(now)), Ok(Some(_))) {
-            changed = true;
-        }
-        if changed {
-            self.keep.dirty = true;
-        }
-        if self.keep.dirty || now >= self.keep.next {
-            let _ = self.save_state(now).await;
-        }
-    }
-
     /// Legt de staat nu bij de kern neer; geeft de maat van het blob.
     async fn save_state(&mut self, now: Nanos) -> Result<usize, String> {
-        self.keep.next = now.saturating_add(STATE_REFRESH);
         let leader = if self.cluster.is_none() {
-            match self.leader.snapshot(Time(now)) {
-                Ok(s) => Some(s),
-                Err(e) => return Err(self.state_failed(&format!("the leader's snapshot: {e}"))),
-            }
+            let s = self.leader.snapshot(Time(now));
+            Some(s.map_err(|e| format!("the leader's snapshot: {e}"))?)
         } else {
             None
         };
-        let r = self
-            .agent
+        self.agent
             .save_to(self.runner.system_mut(), leader.as_deref())
-            .await;
-        match r {
-            Ok(n) => {
-                self.keep.dirty = false;
-                self.keep.failures = 0;
-                Ok(n)
-            }
-            Err(e @ agent::Error::Store(StoreError::TooBig { .. })) => {
-                // Groeit niet vanzelf weer in: niet elke tik een blob van
-                // een megabyte maken, alleen op het ritme.
-                self.keep.dirty = false;
-                Err(self.state_failed(&format!("{e}")))
-            }
-            Err(e) => Err(self.state_failed(&format!("{e}"))),
-        }
-    }
-
-    /// Een schrijf die mislukte: luid, drie keer, dan eens per honderd
-    /// (handboek §6). De vlag blijft staan: de volgende tik probeert opnieuw.
-    fn state_failed(&mut self, why: &str) -> String {
-        self.keep.failures = self.keep.failures.saturating_add(1);
-        let n = self.keep.failures;
-        if n <= 3 || n.is_multiple_of(100) {
-            self.lines.push(format!(
-                "hop: state for the kernel not saved ({n}x): {why} HOP_KERNEL_STATE_FAIL"
-            ));
-        }
-        String::from(why)
+            .await
+            .map_err(|e| format!("{e}"))
     }
 
     /// De kern luidde de stop-bel (een stop van het slot, of een herstart
@@ -1170,7 +1096,6 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         self.runner.pump_kern_logs().await;
         self.cluster_tick(now);
         self.collect_events();
-        self.keep_state(now).await;
     }
 
     /// Voert acties uit tot de agent niets meer vraagt (begrensd).

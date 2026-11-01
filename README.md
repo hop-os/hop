@@ -144,9 +144,9 @@ still reports as running (`HOP_ADOPTED n=N`), and only then stops what nobody
 owns and registers with its leader, which counts the adopted tasks as placed.
 
 The state lives in kernel memory and dies with the boot, so a cold boot can
-never adopt a cage of a previous boot. Hop writes it on every tick that
-changed something (1 s), again every 10 s (a warm kernel flip leaves the new
-kernel empty), before a restart and at the stop bell. Within the 30 s of the
+never adopt a cage of a previous boot. Hop writes it where it is read: just
+before it asks `HOP_RESTART`, once more when it leaves, and at the stop
+bell. Within the 30 s of the
 lease and the leader's agent timeout, a restart is invisible to the cluster:
 the same node takes its own lease back at once. Hop needs HopOS v3.0.19 or
 later; a kernel that does not answer `STATE_GET`, or a state Hop cannot
