@@ -601,6 +601,14 @@ mod tests {
         panic!("hangt");
     }
 
+    /// De opdracht van één `NEXT_STORE`.
+    fn task_of(n: runner::StoreNext) -> runner::StoreTask {
+        match n {
+            runner::StoreNext::Task(t) => t,
+            other => panic!("no task: {other:?}"),
+        }
+    }
+
     #[test]
     fn split_host_ports() {
         assert_eq!(split_host("s3.example.com", true), ("s3.example.com", 443));
@@ -725,7 +733,7 @@ mod tests {
             key: String::from("/big.bin"),
             path: String::from("/big.bin"),
         });
-        bl(sys.next_store(0)).unwrap().unwrap();
+        task_of(bl(sys.next_store(0)).unwrap());
         let t = task(StoreOp::Pull, "/big.bin");
         let mut sink = KernSink::new(&mut sys, &t).unwrap();
         let (n, _) = bl(client().get_to(&mut &mut s3, "apps/c/demo/big.bin", &mut sink)).unwrap();
@@ -742,7 +750,7 @@ mod tests {
             key: String::from("/big.bin"),
             path: String::from("/big.bin"),
         });
-        let t = bl(sys.next_store(0)).unwrap().unwrap();
+        let t = task_of(bl(sys.next_store(0)).unwrap());
         let mut src = KernSource::new(&mut sys, &t, big.len() as u64).unwrap();
         bl(client().put_from(
             &mut &mut s3,
@@ -766,7 +774,7 @@ mod tests {
             key: String::from("/e"),
             path: String::from("/e"),
         });
-        let t = bl(sys.next_store(0)).unwrap().unwrap();
+        let t = task_of(bl(sys.next_store(0)).unwrap());
         let mut empty = RamS3::default();
         let mut sink = KernSink::new(&mut sys, &t).unwrap();
         bl(client().get_to(&mut &mut empty, "apps/c/demo/e", &mut sink)).unwrap();

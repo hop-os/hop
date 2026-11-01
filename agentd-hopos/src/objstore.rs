@@ -24,11 +24,11 @@ use alloc::vec::Vec;
 use core::fmt::Write as _;
 use core::future::Future;
 
-use runner::{StoreOp, StoreStatus, StoreTask, SysError, SystemApi};
+use runner::{StoreNext, StoreOp, StoreStatus, StoreTask, SysError, SystemApi};
 
 pub mod bucket;
 
-/// Hoe lang `NEXT_STORE` op een opdracht wacht: net onder de grens van de
+/// Hoe lang `NEXT_STORE` op een opdracht of de console wacht: net onder de grens van de
 /// kern (`abi::systemapi::store::MAX_WAIT_MS`, 5 s), zodat een lange wacht
 /// nooit de call-timeout van de client (10 s) raakt.
 pub const POLL_MS: u64 = 4_000;
@@ -94,6 +94,18 @@ pub struct Service<B> {
     base: String,
 }
 
+/// Wat één lange wacht gaf ([`Service::serve_one`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Served {
+    /// Een opdracht van een app, afgehandeld.
+    Done(Outcome),
+    /// Nieuwe regels op de console (`LOG_NEWS`): voor de eigenaar, die ze
+    /// met `NEXT_LOG` ophaalt (besluit H8).
+    Logs,
+    /// Binnen de wacht niets.
+    Quiet,
+}
+
 /// Wat een doorloop deed, voor de logregel van de bewoner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Outcome {
@@ -121,17 +133,15 @@ impl<B: Bucket> Service<B> {
         self.bucket.is_some()
     }
 
-    /// Haalt één opdracht op (met een lange wacht) en handelt hem af. `None`
-    /// als er niets kwam; een fout van de kern (geen verbinding, een kern
-    /// zonder rij) gaat naar de aanroeper, die even wacht.
-    pub async fn serve_one<S: SystemApi>(
-        &mut self,
-        sys: &mut S,
-    ) -> Result<Option<Outcome>, SysError> {
-        let Some(task) = sys.next_store(POLL_MS).await? else {
-            return Ok(None);
-        };
-        Ok(Some(self.handle(sys, task).await))
+    /// Eén lange wacht (`NEXT_STORE` met `NEXT_STORE_LOGS`): een opdracht
+    /// handelt hij af, nieuws op de console geeft hij door. Een fout van de
+    /// kern (geen verbinding, een kern zonder rij) gaat naar de aanroeper.
+    pub async fn serve_one<S: SystemApi>(&mut self, sys: &mut S) -> Result<Served, SysError> {
+        Ok(match sys.next_store(POLL_MS).await? {
+            StoreNext::Task(task) => Served::Done(self.handle(sys, task).await),
+            StoreNext::Logs => Served::Logs,
+            StoreNext::Quiet => Served::Quiet,
+        })
     }
 
     /// Eén opdracht: de S3-kant, dan de afmelding.

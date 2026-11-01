@@ -460,22 +460,16 @@ impl<C: Call> SystemApi for KernSys<C> {
         Ok(s)
     }
 
-    async fn next_log_line(&mut self, slot: Slot, buf: &mut [u8]) -> Option<usize> {
+    async fn next_log_line(&mut self, buf: &mut [u8]) -> Result<Option<usize>, SysError> {
         let max = u64::try_from(buf.len()).unwrap_or(u64::MAX);
-        match self
-            .plain(PrivOp::NextLog, u64::from(slot.0), max, buf)
+        let (resp, n) = self
+            .plain(PrivOp::NextLog, 0, max, buf)
             .await
-        {
-            Ok((resp, n)) if resp.size == 1 => Some(n),
-            _ => None,
-        }
+            .map_err(|e| sys_error(&e))?;
+        Ok((resp.size == 1).then_some(n))
     }
 
-    async fn next_kern_line(&mut self, buf: &mut [u8]) -> Option<usize> {
-        self.next_log_line(Slot(0), buf).await
-    }
-
-    async fn next_store(&mut self, wait_ms: u64) -> Result<Option<runner::StoreTask>, SysError> {
+    async fn next_store(&mut self, wait_ms: u64) -> Result<runner::StoreNext, SysError> {
         self.wire_next_store(wait_ms).await
     }
 

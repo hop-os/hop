@@ -14,7 +14,7 @@ use abi::hopabi;
 use abi::systemapi::store::{self as wire, DoneHead};
 use abi::systemapi::{self, PrivOp};
 use applib::sys;
-use runner::{Slot, StoreOp, StoreStatus, StoreTask, SysError};
+use runner::{Slot, StoreNext, StoreOp, StoreStatus, StoreTask, SysError};
 
 use crate::{Call, KernSys, sys_error, to_sys};
 
@@ -43,12 +43,10 @@ fn status_of(s: StoreStatus) -> u16 {
 }
 
 impl<C: Call> KernSys<C> {
-    /// `NEXT_STORE` over de draad.
-    pub(crate) async fn wire_next_store(
-        &mut self,
-        wait_ms: u64,
-    ) -> Result<Option<StoreTask>, SysError> {
-        let r = systemapi::plain_req(PrivOp::NextStore, 0, 0, wait_ms);
+    /// `NEXT_STORE` over de draad, altijd met [`wire::NEXT_STORE_LOGS`]: de
+    /// store-taak wacht zo ook op de console (besluit H8).
+    pub(crate) async fn wire_next_store(&mut self, wait_ms: u64) -> Result<StoreNext, SysError> {
+        let r = systemapi::plain_req(PrivOp::NextStore, 0, wire::NEXT_STORE_LOGS, wait_ms);
         let mut buf = Vec::new();
         buf.try_reserve_exact(TASK_MAX)
             .map_err(|_| SysError::Refused(String::from("store task buffer: out of memory")))?;
@@ -57,8 +55,10 @@ impl<C: Call> KernSys<C> {
             .exchange(to_sys(&r, ""), &mut buf)
             .await
             .map_err(|e| sys_error(&e))?;
-        if resp.size == 0 {
-            return Ok(None);
+        match resp.size {
+            0 => return Ok(StoreNext::Quiet),
+            wire::LOG_NEWS => return Ok(StoreNext::Logs),
+            _ => {}
         }
         let t = wire::StoreTask::decode(buf.get(..n).unwrap_or_default())
             .map_err(|e| SysError::Refused(alloc::format!("malformed store task: {e:?}")))?;
@@ -72,9 +72,9 @@ impl<C: Call> KernSys<C> {
             let _ = self
                 .wire_store_done(t.ticket, StoreStatus::Denied, 0, why)
                 .await;
-            return Ok(None);
+            return Ok(StoreNext::Quiet);
         };
-        Ok(Some(StoreTask {
+        Ok(StoreNext::Task(StoreTask {
             ticket: t.ticket,
             slot: Slot(t.slot),
             op,

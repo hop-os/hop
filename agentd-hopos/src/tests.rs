@@ -876,14 +876,17 @@ fn signed(method: Method, target: &str) -> Request {
     r
 }
 
-/// Zet een logregel klaar in slot 1 van de nep-kern.
+/// Een regel van de app in slot 1 op de console van de nep-kern, zoals de
+/// kern hem zet: `slot 1: ...`.
 fn app_says(k: &FakeKern, line: &str) {
     k.0.borrow_mut()
-        .slots
-        .get_mut(&1)
-        .unwrap()
-        .logs
-        .push_back(line.as_bytes().to_vec());
+        .console
+        .push_back(format!("slot 1: {line}").into_bytes());
+}
+
+/// De eigenaar na `LOG_NEWS`: de console leeg in de ringen.
+fn pump(node: &mut TestNode, now: u64) {
+    block_on(node.pump_logs(now)).unwrap();
 }
 
 #[test]
@@ -893,6 +896,7 @@ fn a_log_is_followed_live_through_the_leader() {
     let task = n.agent().tasks().next().unwrap().id.clone();
     app_says(&k, "one");
     tick(&mut n, T0 + types::time::SECOND);
+    pump(&mut n, T0 + types::time::SECOND);
 
     // hop logs --follow: via de leader naar de eigen agent, in-proces.
     let req = signed(
@@ -917,7 +921,7 @@ fn a_log_is_followed_live_through_the_leader() {
     assert_eq!(n.poll(&again, T0).text, "");
     // Een nieuwe regel van de app komt er als enige bij.
     app_says(&k, "two");
-    tick(&mut n, T0 + 2 * types::time::SECOND);
+    pump(&mut n, T0 + 2 * types::time::SECOND);
     let c2 = n.poll(&again, T0);
     assert_eq!((c2.text.as_str(), c2.seq), ("data: two\n\n", 2));
     // Met follow=0: de momentopname (`hop logs` zonder --follow).
@@ -1504,12 +1508,12 @@ fn the_bell_or_the_grace_ends_the_wait_for_the_reply() {
 #[test]
 fn the_kernel_log_reaches_kern_on_the_agent_and_through_the_leader() {
     let (mut n, k) = node();
-    k.0.borrow_mut().kern_logs.extend([
+    k.0.borrow_mut().console.extend([
         b"HOPOS_BOOT v3.0.17".to_vec(),
         b"HOPOS_TICK 1 late_ms=0".to_vec(),
     ]);
-    tick(&mut n, T0 + SECOND);
-    assert!(k.0.borrow().kern_logs.is_empty(), "the tick pumped slot 0");
+    pump(&mut n, T0 + SECOND);
+    assert!(k.0.borrow().console.is_empty(), "pumped until empty");
     let (status, body) = http(&mut n, Port::Agent, wire("GET", "/logs/kern/stdout", ""));
     assert_eq!(status, 200, "{body}");
     assert!(
@@ -1531,10 +1535,8 @@ fn the_kernel_log_reaches_kern_on_the_agent_and_through_the_leader() {
         )
     );
     // En hij loopt door: een nieuwe regel van de kern komt er als enige bij.
-    k.0.borrow_mut()
-        .kern_logs
-        .push_back(b"HOPOS_TICK 2".to_vec());
-    tick(&mut n, T0 + 2 * SECOND);
+    k.0.borrow_mut().console.push_back(b"HOPOS_TICK 2".to_vec());
+    pump(&mut n, T0 + 2 * SECOND);
     let again = Ask::Logs {
         task_id: String::from("kern"),
         stream: api::LogStream::Stdout,
@@ -1550,17 +1552,19 @@ fn the_kernel_log_reaches_kern_on_the_agent_and_through_the_leader() {
 
 #[test]
 fn hop_keeps_its_own_lines_in_the_ring_of_hop() {
-    let (mut n, _k) = node();
-    // De regels van de node (HOP_LEADER bij de start) gaan erin zodra de
-    // binary ze op de console zet (take_lines), en de regels van de andere
-    // taken via hop_line.
-    let lines = n.take_lines();
-    assert!(lines.iter().any(|l| l.contains("HOP_LEADER")), "{lines:?}");
-    n.hop_line("hop: agent up node=n1 HOP_UP");
+    let (mut n, k) = node();
+    // Elke regel van Hop (de node en de taken van de binary) staat op de
+    // console als een regel van zijn slot (2 in deze toetsen), en de pomp zet
+    // hem in de ring van `hop`, zonder het voorvoegsel.
+    k.0.borrow_mut().console.extend([
+        b"slot 2: hop: leader for cluster HOP_LEADER".to_vec(),
+        b"slot 2: hop: agent up node=n1 HOP_UP".to_vec(),
+    ]);
+    pump(&mut n, T0);
     let (status, body) = http(&mut n, Port::Agent, wire("GET", "/logs/hop/stdout", ""));
     assert_eq!(status, 200, "{body}");
     assert!(
-        body.contains("HOP_LEADER") && body.contains("HOP_UP"),
+        body.contains("HOP_LEADER") && body.contains("HOP_UP") && !body.contains("slot 2:"),
         "{body}"
     );
     let snap = signed(Method::Get, "/v1/agents/n1/logs/hop/stdout?follow=0");

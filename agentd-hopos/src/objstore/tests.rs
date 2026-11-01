@@ -82,6 +82,14 @@ impl Bucket for RamBucket {
     }
 }
 
+/// De afgehandelde opdracht van één lange wacht.
+fn done(s: Served) -> Outcome {
+    match s {
+        Served::Done(o) => o,
+        other => panic!("no task: {other:?}"),
+    }
+}
+
 fn call(op: u8, key: &str, path: &str) -> FakeStore {
     FakeStore {
         slot: 2,
@@ -101,12 +109,12 @@ fn the_service_runs_the_store_demo_under_the_cluster_prefix() {
     let k = FakeKern::new(4);
     let mut sys = KernSys::new(k.client(), 4);
     let mut svc = Service::new(Some(RamBucket::default()), "hopos");
-    assert_eq!(bl(svc.serve_one(&mut sys)).unwrap(), None);
+    assert_eq!(bl(svc.serve_one(&mut sys)).unwrap(), Served::Quiet);
     k.0.borrow_mut()
         .files
         .insert(String::from("/data/state.json"), b"leven 1".to_vec());
     k.queue_store(call(OP_STORE_PUSH, "/data/state.json", "/data/state.json"));
-    let o = bl(svc.serve_one(&mut sys)).unwrap().unwrap();
+    let o = done(bl(svc.serve_one(&mut sys)).unwrap());
     assert_eq!(
         (o.status, o.delivered),
         (StoreStatus::Ok, true),
@@ -116,16 +124,16 @@ fn the_service_runs_the_store_demo_under_the_cluster_prefix() {
     let obj = &svc.bucket.as_ref().unwrap().objects;
     assert_eq!(obj["apps/hopos/demo/data/state.json"], b"leven 1");
     k.queue_store(call(OP_STORE_LIST, "/", ""));
-    bl(svc.serve_one(&mut sys)).unwrap().unwrap();
+    done(bl(svc.serve_one(&mut sys)).unwrap());
     k.queue_store(call(OP_STORE_PULL, "/data/state.json", "/copy.json"));
-    bl(svc.serve_one(&mut sys)).unwrap().unwrap();
+    done(bl(svc.serve_one(&mut sys)).unwrap());
     k.queue_store(call(OP_STORE_PULL, "/never.json", "/never.json"));
-    let o = bl(svc.serve_one(&mut sys)).unwrap().unwrap();
+    let o = done(bl(svc.serve_one(&mut sys)).unwrap());
     assert_eq!(o.status, StoreStatus::NotFound);
     k.queue_store(call(OP_STORE_DROP, "/data/state.json", "/data/state.json"));
-    bl(svc.serve_one(&mut sys)).unwrap().unwrap();
+    done(bl(svc.serve_one(&mut sys)).unwrap());
     k.queue_store(call(OP_STORE_LIST, "/", ""));
-    bl(svc.serve_one(&mut sys)).unwrap().unwrap();
+    done(bl(svc.serve_one(&mut sys)).unwrap());
     let k = k.0.borrow();
     assert_eq!(k.files["/copy.json"], b"leven 1");
     let done: Vec<(u16, u64, &[u8])> = k
@@ -160,7 +168,7 @@ fn refusals_are_loud_for_the_app() {
     let mut bare: Service<RamBucket> = Service::new(None, "hopos");
     assert!(!bare.has_bucket());
     k.queue_store(call(OP_STORE_PUSH, "/x", "/x"));
-    let o = bl(bare.serve_one(&mut sys)).unwrap().unwrap();
+    let o = done(bl(bare.serve_one(&mut sys)).unwrap());
     assert_eq!((o.status, o.why.as_str()), (StoreStatus::Error, NO_STORE));
     let mut svc = Service::new(
         Some(RamBucket {
@@ -170,17 +178,17 @@ fn refusals_are_loud_for_the_app() {
         "hopos",
     );
     k.queue_store(call(OP_STORE_LIST, "/", ""));
-    let o = bl(svc.serve_one(&mut sys)).unwrap().unwrap();
+    let o = done(bl(svc.serve_one(&mut sys)).unwrap());
     assert!(o.why.contains("narrower prefix"), "{}", o.why);
     k.queue_store(FakeStore {
         job: String::from("a/b"),
         ..call(OP_STORE_PUSH, "/x", "/x")
     });
-    let o = bl(svc.serve_one(&mut sys)).unwrap().unwrap();
+    let o = done(bl(svc.serve_one(&mut sys)).unwrap());
     assert!(o.why.contains("namespace"), "{}", o.why);
     // Een push van een bestand dat er niet is: de reden van de kern.
     k.queue_store(call(OP_STORE_PUSH, "/nope", "/nope"));
-    let o = bl(svc.serve_one(&mut sys)).unwrap().unwrap();
+    let o = done(bl(svc.serve_one(&mut sys)).unwrap());
     assert_eq!(o.status, StoreStatus::Error);
     assert!(k.0.borrow().store_done.iter().all(|d| d.1 == STATUS_ERROR));
 }

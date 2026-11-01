@@ -51,8 +51,6 @@ pub struct FakeSlot {
     pub image: Vec<u8>,
     /// Na de laatste byte geplaatst en gestart.
     pub placed: bool,
-    /// Logregels die de app "schreef".
-    pub logs: VecDeque<Vec<u8>>,
     /// De app viel om (voor status-tests).
     pub crashed: bool,
 }
@@ -113,8 +111,11 @@ pub struct KernState {
     pub restart_ok: bool,
     /// Elke aangenomen `HOP_RESTART`: (slot of 0, som, termijn in ms).
     pub restarts: Vec<(u64, String, u64)>,
-    /// De consoleregels van de kern zelf (`NEXT_LOG` op slot 0).
-    pub kern_logs: VecDeque<Vec<u8>>,
+    /// De console van de kern (`NEXT_LOG`, alleen slot 0): zijn eigen regels
+    /// en die van de apps als `slot N: ...`, zoals `kern::conport` sinds
+    /// hop-os f88f70f. Zolang hier iets ongelezen staat, geeft `NEXT_STORE`
+    /// met `NEXT_STORE_LOGS` het nieuws (`LOG_NEWS`), als er geen opdracht is.
+    pub console: VecDeque<Vec<u8>>,
     /// Zoveel calls krijgen geen antwoord: de verbinding gaat dicht, zoals
     /// een kern die een verbinding vlak na de start weigert. De client
     /// herhaalt een call één keer na een transportfout, dus twee is één
@@ -424,20 +425,14 @@ impl FakeKern {
                 };
                 ok(0, &info.encode())
             }
-            Some(PrivOp::NextLog) => {
-                let line = if req.off == 0 {
-                    k.kern_logs.pop_front()
-                } else {
-                    k.slots.get_mut(&req.off).and_then(|s| s.logs.pop_front())
-                };
-                match line {
-                    Some(mut l) => {
-                        l.truncate(usize::try_from(req.n).unwrap_or(usize::MAX));
-                        ok(1, &l)
-                    }
-                    None => ok(0, b""),
+            Some(PrivOp::NextLog) if req.off != 0 => err("slot out of range (max 0)"),
+            Some(PrivOp::NextLog) => match k.console.pop_front() {
+                Some(mut l) => {
+                    l.truncate(usize::try_from(req.n).unwrap_or(usize::MAX));
+                    ok(1, &l)
                 }
-            }
+                None => ok(0, b""),
+            },
             Some(PrivOp::SetClock) if k.clock_refused => err("the clock is not yours to set"),
             Some(PrivOp::SetClock) => {
                 k.clock = req.n;
@@ -481,7 +476,8 @@ impl FakeKern {
             Some(PrivOp::Flip) => err("flip not in the fake kernel"),
             Some(PrivOp::NextStore) => {
                 let Some(c) = k.store_queue.pop_front() else {
-                    return ok(0, b"");
+                    let logs = req.off & store::NEXT_STORE_LOGS != 0 && !k.console.is_empty();
+                    return ok(if logs { store::LOG_NEWS } else { 0 }, b"");
                 };
                 let ticket = k.next_ticket - k.store_queue.len() as u64;
                 let t = store::StoreTask {

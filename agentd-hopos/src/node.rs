@@ -621,20 +621,26 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
 
     /// De regels voor de console sinds de vorige keer.
     ///
-    /// Ze gaan ook in de ring van de systeemtaak `hop` (`/logs/hop/stdout`):
-    /// in het proces, niet via de console van de kern.
+    /// Via de console komen ze ook in de ring van de systeemtaak `hop`
+    /// (`/logs/hop/stdout`, [`Node::pump_logs`]), net als elke andere regel
+    /// van Hop.
     pub fn take_lines(&mut self) -> Vec<String> {
-        let lines = core::mem::take(&mut self.lines);
-        for l in &lines {
-            self.runner.system_line(types::HOP_TASK, l);
-        }
-        lines
+        core::mem::take(&mut self.lines)
     }
 
-    /// Een regel van Hop die niet uit de node kwam (de kloktaak, de
-    /// store-taak, de start van de binary): ook in de ring van `hop`.
-    pub fn hop_line(&mut self, line: &str) {
-        self.runner.system_line(types::HOP_TASK, line);
+    /// Haalt de console van de kern leeg in de ringen: die van elke taak, van
+    /// `hop` (de regels van Hop zelf, uit zijn eigen slot) en van `kern`
+    /// (`HopRunner::pump_console`). De eigenaar roept hem als de store-taak
+    /// nieuws op de console meldt (`LOG_NEWS`, besluit H8), niet per tik.
+    /// Een kern die niet antwoordt, is [`Fatal`].
+    pub async fn pump_logs(&mut self, now: Nanos) -> Result<(), Fatal> {
+        self.runner
+            .pump_console(self.own_slot, now / MILLISECOND)
+            .await
+            .map_err(|e| Fatal {
+                code: EXIT_KERNEL,
+                why: format!("NEXT_LOG: {e}"),
+            })
     }
 
     /// Eén keer een regel over iets dat nog niet aangesloten is, niet per tik.
@@ -972,7 +978,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         }
     }
 
-    /// Laat de tijd verstrijken: heartbeat en tik van de leader, tik van de agent, de logpomp.
+    /// Laat de tijd verstrijken: heartbeat en tik van de leader, tik van de agent.
     pub async fn tick(&mut self, now: Nanos) {
         // De eigen agent is altijd levend zolang deze taak draait; zonder
         // heartbeat zou de eigen leader hem na 30 s dood verklaren.
@@ -1000,8 +1006,6 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         let actions = self.agent.tick(now);
         self.run_actions(now, actions).await;
         self.drain(now).await;
-        self.runner.pump_logs(now / MILLISECOND).await;
-        self.runner.pump_kern_logs().await;
         self.cluster_tick(now);
         self.collect_events();
     }

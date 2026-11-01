@@ -348,17 +348,23 @@ fn a_refused_state_op_is_a_refusal_not_a_lost_connection() {
 #[test]
 fn next_log_and_set_clock() {
     let (mut s, k) = sys(4);
-    let slot = bl(s.start_slot(&spec(ELF.len() as u64))).unwrap();
     k.0.borrow_mut()
-        .slots
-        .get_mut(&1)
-        .unwrap()
-        .logs
-        .push_back(b"hello from web".to_vec());
+        .console
+        .push_back(b"slot 2: hello from web".to_vec());
     let mut buf = [0u8; 64];
-    assert_eq!(bl(s.next_log_line(slot, &mut buf)), Some(14));
-    assert_eq!(&buf[..14], b"hello from web");
-    assert_eq!(bl(s.next_log_line(slot, &mut buf)), None);
+    assert_eq!(bl(s.next_log_line(&mut buf)), Ok(Some(22)));
+    assert_eq!(&buf[..22], b"slot 2: hello from web");
+    assert_eq!(bl(s.next_log_line(&mut buf)), Ok(None));
+    // De frame: NEXT_LOG met off 0, de console (hop-os f88f70f).
+    let f = k.0.borrow().frames.last().unwrap().clone();
+    let req = hopabi::decode_req(&f[systemapi::HEADER_LEN..]).unwrap();
+    assert_eq!((req.op, req.off), (PrivOp::NextLog.op(), 0));
+    // Een kern die niet antwoordt, is een fout en geen "niets klaar".
+    k.0.borrow_mut().drop_calls = 2;
+    assert!(matches!(
+        bl(s.next_log_line(&mut buf)),
+        Err(runner::SysError::Unreachable(_))
+    ));
     bl(s.set_clock(1_759_000_000_000_000_000)).unwrap();
     assert_eq!(k.0.borrow().clock, 1_759_000_000_000_000_000);
 }
@@ -442,7 +448,16 @@ fn store_ops_speak_the_wire_of_abi() {
     use crate::fake::FakeStore;
     use runner::{StoreOp, StoreStatus};
     let (mut s, k) = sys(4);
-    assert_eq!(bl(s.next_store(0)).unwrap(), None, "an empty queue");
+    use runner::StoreNext;
+    assert_eq!(
+        bl(s.next_store(0)).unwrap(),
+        StoreNext::Quiet,
+        "an empty queue"
+    );
+    // Een regel op de console: de lange wacht zegt het (H8, LOG_NEWS).
+    k.0.borrow_mut().console.push_back(b"HOPOS_TICK".to_vec());
+    assert_eq!(bl(s.next_store(0)).unwrap(), StoreNext::Logs);
+    k.0.borrow_mut().console.clear();
     k.0.borrow_mut()
         .files
         .insert(String::from("/data/state.json"), b"hallo".to_vec());
@@ -453,7 +468,9 @@ fn store_ops_speak_the_wire_of_abi() {
         key: String::from("/data/state.json"),
         path: String::from("/data/state.json"),
     });
-    let t = bl(s.next_store(4_000)).unwrap().unwrap();
+    let StoreNext::Task(t) = bl(s.next_store(4_000)).unwrap() else {
+        panic!("no task")
+    };
     assert_eq!(
         (t.ticket, t.slot.0, t.op, t.job.as_str(), t.key.as_str()),
         (push, 2, StoreOp::Push, "demo", "/data/state.json")
@@ -472,7 +489,9 @@ fn store_ops_speak_the_wire_of_abi() {
         key: String::from("/data/state.json"),
         path: String::from("/elders.json"),
     });
-    let t = bl(s.next_store(0)).unwrap().unwrap();
+    let StoreNext::Task(t) = bl(s.next_store(0)).unwrap() else {
+        panic!("no task")
+    };
     assert_eq!(
         (t.ticket, t.op, t.path.as_str()),
         (pull, StoreOp::Pull, "/elders.json")
@@ -490,22 +509,6 @@ fn store_ops_speak_the_wire_of_abi() {
     let store_ops: alloc::vec::Vec<u8> = k.ops.iter().copied().filter(|&o| o >= 0x47).collect();
     assert_eq!(
         store_ops,
-        [0x47, 0x47, 0x48, 0x48, 0x4A, 0x4A, 0x47, 0x49, 0x4A]
+        [0x47, 0x47, 0x47, 0x48, 0x48, 0x4A, 0x4A, 0x47, 0x49, 0x4A]
     );
-}
-
-#[test]
-fn the_kernel_hands_out_its_own_lines_on_slot_0() {
-    let (mut s, k) = sys(4);
-    k.0.borrow_mut()
-        .kern_logs
-        .push_back(b"HOPOS_TICK 7 late_ms=0".to_vec());
-    let mut buf = [0u8; 64];
-    assert_eq!(bl(s.next_kern_line(&mut buf)), Some(22));
-    assert_eq!(&buf[..22], b"HOPOS_TICK 7 late_ms=0");
-    assert_eq!(bl(s.next_kern_line(&mut buf)), None);
-    // De frame: NEXT_LOG met off 0.
-    let f = k.0.borrow().frames.last().unwrap().clone();
-    let req = hopabi::decode_req(&f[systemapi::HEADER_LEN..]).unwrap();
-    assert_eq!((req.op, req.off), (PrivOp::NextLog.op(), 0));
 }

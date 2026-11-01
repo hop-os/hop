@@ -101,9 +101,11 @@ hop image hopos-rpi4-headless.img --keep --write /dev/rdisk4        # new image,
 hop image hopos-o6n-headless.flip --config my-node.cfg              # a bundle: prints the new sha256
 ```
 
-On a HopOS node the two system tasks have logs too: `kern` is the kernel's
-own console (Hop pumps `NEXT_LOG` on slot 0 every tick) and `hop` is Hop's
-own lines, kept in the process.
+On a HopOS node the two system tasks have logs too. The kernel has one
+console, with the lines of every app in it as `slot N: ...`; Hop reads it
+(`NEXT_LOG`) when its long wait for the object store says there is news,
+and splits it: a line of slot N goes to the task in slot N, a line of Hop's
+own slot to `hop`, and the rest to `kern`.
 `GET /logs/kern/stdout` and `/logs/hop/stdout` on the agent, or
 `/v1/agents/{id}/logs/kern/stdout` through the leader (the dashboard's Logs
 button), 200 lines each.

@@ -16,6 +16,20 @@ use crate::store::{StoreStatus, StoreTask};
 /// De weigering van een kern (of nep) zonder store-rij.
 pub const NO_STORE_QUEUE: &str = "no object store on this node (the kernel has no store queue)";
 
+/// Wat `NEXT_STORE` gaf: Hop wacht er lang op, voor de store-opdrachten van
+/// de apps én voor de console (`NEXT_STORE_LOGS`, besluit H8: één lange wacht
+/// voor beide, over de verbinding van de store-taak).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StoreNext {
+    /// De volgende store-opdracht van een app (die gaat voor).
+    Task(StoreTask),
+    /// Er staan nieuwe regels op de console: haal ze met
+    /// [`SystemApi::next_log_line`] tot leeg (`LOG_NEWS`).
+    Logs,
+    /// Binnen de wacht niets.
+    Quiet,
+}
+
 /// Een kooi op de node (een slot-index, 1 of hoger); geen core-nummer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Slot(pub u32);
@@ -261,37 +275,31 @@ pub trait SystemApi {
     /// vegen) is hij hard, daarna telt de meting niet.
     fn slot_status(&mut self, slot: Slot) -> impl Future<Output = Result<SlotStatus, SysError>>;
 
-    /// `NEXT_LOG`: haalt de volgende logregel van de app in `buf`, zonder
-    /// regeleinde.
+    /// `NEXT_LOG`: de volgende regel van de console van de kern in `buf`,
+    /// zonder regeleinde.
     ///
-    /// Geeft de lengte, of `None` als er niets klaarstaat. Een regel langer dan
-    /// `buf` wordt afgekapt. De kern bewaart per slot een korte ring; wie te
-    /// laat komt, mist de oudste regels.
-    fn next_log_line(&mut self, slot: Slot, buf: &mut [u8]) -> impl Future<Output = Option<usize>>;
-
-    /// `NEXT_LOG` op slot 0: de volgende consoleregel van de kern zelf (niet
-    /// die van de apps), zonder regeleinde; `None` als er niets klaarstaat.
-    ///
-    /// De standaard is een kern zonder regels (de nep-kernen van de toetsen).
-    fn next_kern_line(&mut self, buf: &mut [u8]) -> impl Future<Output = Option<usize>> {
-        let _ = buf;
-        async { None }
-    }
+    /// Dezelfde bytes als de UART, dus ook de regels van de apps, elk met
+    /// `slot N: ` ervoor (sinds hop-os f88f70f geen ring per slot meer; Hop
+    /// splitst zelf, [`crate::HopRunner::pump_console`]). Geeft de lengte, of
+    /// `None` als er niets klaarstaat; een regel langer dan `buf` komt in
+    /// stukken. Een fout is een kern die niet antwoordde.
+    fn next_log_line(
+        &mut self,
+        buf: &mut [u8],
+    ) -> impl Future<Output = Result<Option<usize>, SysError>>;
 
     /// `SET_CLOCK`: zet de klok van de node (Unix-nanoseconden).
     fn set_clock(&mut self, unix_ns: u64) -> impl Future<Output = Result<(), SysError>>;
 
-    /// `NEXT_STORE`: de volgende store-opdracht van een app, of `None` als
-    /// er binnen `wait_ms` niets kwam (de kern kapt de wacht af op 5 s).
+    /// `NEXT_STORE` met `NEXT_STORE_LOGS`: de volgende store-opdracht van een
+    /// app, nieuws op de console, of niets binnen `wait_ms` (de kern kapt de
+    /// wacht af op 5 s).
     ///
     /// De standaard is een kern zonder store-rij: een luide weigering. De
     /// store-kant heeft een eigen verbinding nodig (hij wacht lang), dus hij
     /// hoort niet bij de eigenaar-taak maar bij een eigen taak met een eigen
     /// implementatie.
-    fn next_store(
-        &mut self,
-        wait_ms: u64,
-    ) -> impl Future<Output = Result<Option<StoreTask>, SysError>> {
+    fn next_store(&mut self, wait_ms: u64) -> impl Future<Output = Result<StoreNext, SysError>> {
         let _ = wait_ms;
         async { Err(SysError::Refused(String::from(NO_STORE_QUEUE))) }
     }

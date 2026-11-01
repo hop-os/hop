@@ -48,11 +48,6 @@ const LOG_LINE_MAX: usize = 512;
 /// 256 MB.
 pub const SYSTEM_LOG_LINES: usize = 200;
 
-/// Hoeveel regels van de kern zelf één pomprond hoogstens haalt: elke
-/// regel is een call naar de kern, en de rest van de tik wacht erop. Wat
-/// blijft liggen, komt de volgende tik.
-const KERN_LINES_PER_PUMP: usize = 256;
-
 /// Waar de start van een taak is.
 #[derive(Debug)]
 enum Phase {
@@ -72,6 +67,14 @@ impl Phase {
             Phase::Streaming { slot, .. } | Phase::Armed(slot) => Some(*slot),
         }
     }
+}
+
+/// Het slot en de rest van een consoleregel `slot N: ...` (zo zet de kern
+/// een regel van een app, en zijn eigen regels over een slot, op de
+/// console); `None` voor elke andere regel.
+fn split_slot(line: &str) -> Option<(Slot, &str)> {
+    let (n, rest) = line.strip_prefix("slot ")?.split_once(": ")?;
+    Some((Slot(n.parse().ok()?), rest))
 }
 
 /// De start en de kooi van één taak.
@@ -102,9 +105,8 @@ impl<S: SystemApi> HopRunner<S> {
     /// Een runner op `sys`; `node_attrs` gaan als `ER_ATTR_*` mee naar elke app.
     pub fn new(sys: S, node_attrs: BTreeMap<String, String>, logs: LogPolicy) -> Self {
         let mut logs = LogStore::new(logs);
-        // De systeemtaken hebben hun ring vanaf het begin: `kern` vult de
-        // pomp ([`HopRunner::pump_kern_logs`]), `hop` de eigenaar met zijn
-        // eigen regels ([`HopRunner::system_line`]).
+        // De systeemtaken hebben hun ring vanaf het begin; de pomp vult ze
+        // uit de console ([`HopRunner::pump_console`]).
         logs.open_with(types::KERN_TASK, SYSTEM_LOG_LINES);
         logs.open_with(types::HOP_TASK, SYSTEM_LOG_LINES);
         Self {
@@ -114,29 +116,6 @@ impl<S: SystemApi> HopRunner<S> {
             cages: BTreeMap::new(),
             in_use: BTreeMap::new(),
             downloads: 0,
-        }
-    }
-
-    /// Schrijft een regel in de ring van een systeemtaak (`kern` of `hop`).
-    pub fn system_line(&mut self, task: &str, line: &str) {
-        if let Some(ring) = self.logs.live_mut(task, Stream::Stdout) {
-            ring.write(line);
-        }
-    }
-
-    /// Haalt de consoleregels van de kern zelf in de ring van `kern`.
-    ///
-    /// Zoals [`HopRunner::pump_logs`] voor de apps, met slot 0 (`NEXT_LOG`,
-    /// `off` 0).
-    pub async fn pump_kern_logs(&mut self) {
-        let mut buf = [0u8; LOG_LINE_MAX];
-        for _ in 0..KERN_LINES_PER_PUMP {
-            let Some(n) = self.sys.next_kern_line(&mut buf).await else {
-                break;
-            };
-            let line = buf.get(..n).unwrap_or(&[]);
-            let text = core::str::from_utf8(line).unwrap_or("<log line not utf-8>");
-            self.system_line(types::KERN_TASK, text);
         }
     }
 
@@ -281,26 +260,37 @@ impl<S: SystemApi> HopRunner<S> {
         )
     }
 
-    /// Haalt de logregels van alle draaiende apps uit de kern in hun ringen.
+    /// Haalt de console van de kern leeg (`NEXT_LOG`) en zet elke regel in
+    /// zijn ring: een regel `slot N: ...` zonder dat voorvoegsel bij de taak
+    /// die slot N heeft, of bij `hop` als N `hop` is (het slot van Hop zelf);
+    /// de rest (de kern, een slot van niemand) heel bij `kern`.
     ///
-    /// De executor roept dit periodiek; hij is de pomp die in Go een goroutine
-    /// per taak was. Elke regel is een call naar de kern; tussen de calls
-    /// draaien de andere taken.
-    pub async fn pump_logs(&mut self, now: u64) {
+    /// Sinds hop-os f88f70f is de console de enige ring, met de positie van
+    /// Hop erin (B2): de kern deelt de regels niet meer per slot uit. Tot
+    /// leeg, want de kern meldt nieuws één keer (`LOG_NEWS`, [`StoreNext`]):
+    /// wat blijft liggen, wacht anders op de volgende regel. Een fout is een
+    /// kern die niet antwoordde.
+    ///
+    /// [`StoreNext`]: crate::StoreNext
+    pub async fn pump_console(&mut self, hop: Slot, now: u64) -> Result<(), SysError> {
         let mut buf = [0u8; LOG_LINE_MAX];
-        for (id, cage) in &self.cages {
-            let Phase::Armed(slot) = cage.phase else {
-                continue;
+        while let Some(n) = self.sys.next_log_line(&mut buf).await? {
+            let line = buf.get(..n).unwrap_or(&[]);
+            let text = core::str::from_utf8(line).unwrap_or("<log line not utf-8>");
+            let (task, text) = match split_slot(text) {
+                Some((s, rest)) if s == hop => (types::HOP_TASK, rest),
+                Some((s, rest)) => match self.in_use.get(&s) {
+                    Some(id) => (id.as_str(), rest),
+                    None => (types::KERN_TASK, text),
+                },
+                None => (types::KERN_TASK, text),
             };
-            while let Some(n) = self.sys.next_log_line(slot, &mut buf).await {
-                let line = buf.get(..n).unwrap_or(&[]);
-                let text = core::str::from_utf8(line).unwrap_or("<log line not utf-8>");
-                if let Some(ring) = self.logs.live_mut(id, Stream::Stdout) {
-                    ring.write(text);
-                }
+            if let Some(ring) = self.logs.live_mut(task, Stream::Stdout) {
+                ring.write(text);
             }
         }
         self.logs.sweep(now);
+        Ok(())
     }
 
     /// Schrijft een regel in de stdout-ring van een taak.

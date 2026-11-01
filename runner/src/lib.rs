@@ -53,7 +53,8 @@ pub use hopos::{HOP_STOP_TIMEOUT_MS, HopRunner, MAX_CONCURRENT_DOWNLOADS, SYSTEM
 pub use logs::{LogPolicy, LogRing, LogStore};
 pub use store::{StoreOp, StoreStatus, StoreTask};
 pub use system::{
-    NO_STORE_QUEUE, Slot, SlotApp, SlotState, SlotStatus, StartSpec, Streamed, SysError, SystemApi,
+    NO_STORE_QUEUE, Slot, SlotApp, SlotState, SlotStatus, StartSpec, StoreNext, Streamed, SysError,
+    SystemApi,
 };
 
 /// Een runner-fout.

@@ -30,8 +30,10 @@ struct FakeSlot {
     exited: bool,
     streaming: bool,
     exit_code: u64,
-    logs: VecDeque<String>,
 }
+
+/// Het slot van Hop voor de pomp, buiten de slots die de nep uitdeelt.
+const HOP: Slot = Slot(1000);
 
 /// Een kern in het geheugen: het spiegelbeeld van `kern/slots`.
 #[derive(Default)]
@@ -49,6 +51,9 @@ struct FakeSys {
     place_err: bool,
     stops: Vec<u32>,
     clock: u64,
+    /// De console van de kern (`NEXT_LOG`): de regels van de apps als
+    /// `slot N: ...`.
+    console: VecDeque<String>,
 }
 
 impl FakeSys {
@@ -126,7 +131,8 @@ impl SystemApi for FakeSys {
             )));
         }
         s.core_on = true;
-        s.logs.push_back("app leeft".into());
+        self.console
+            .push_back(format!("slot {}: app leeft", slot.0));
         Ok(Streamed::Placed)
     }
     async fn stop_slot(&mut self, slot: Slot, _timeout_ms: u64) -> Result<(), SysError> {
@@ -170,11 +176,13 @@ impl SystemApi for FakeSys {
         }
         Ok(st)
     }
-    async fn next_log_line(&mut self, slot: Slot, buf: &mut [u8]) -> Option<usize> {
-        let line = self.slots.get_mut(&slot.0)?.logs.pop_front()?;
+    async fn next_log_line(&mut self, buf: &mut [u8]) -> Result<Option<usize>, SysError> {
+        let Some(line) = self.console.pop_front() else {
+            return Ok(None);
+        };
         let n = line.len().min(buf.len());
         buf[..n].copy_from_slice(&line.as_bytes()[..n]);
-        Some(n)
+        Ok(Some(n))
     }
     async fn set_clock(&mut self, unix_ns: u64) -> Result<(), SysError> {
         self.clock = unix_ns;
@@ -267,7 +275,7 @@ fn hop_runner_lifecycle() {
     assert_eq!(spec.mounts["/data"], "/data");
     let t = TaskRef { id: "t1", pid };
     assert_eq!(bl(r.status(0, &t)).unwrap(), RunState::Running);
-    bl(r.pump_logs(0));
+    bl(r.pump_console(HOP, 0)).unwrap();
     assert_eq!(tail(&r, 0, "t1"), ["app leeft"]);
     bl(r.stop(0, &t)).unwrap();
     assert_eq!(bl(r.status(0, &t)).unwrap(), RunState::Failed);
@@ -279,7 +287,7 @@ fn hop_runner_cage_line_reaches_task_log() {
     r.system_mut().cage =
         "hart of slot 1: misa 0x800000000094112d (rv64 acdfimsux, S-mode present)".into();
     run(&mut r, "t-cage", &hop_job()).unwrap();
-    bl(r.pump_logs(0));
+    bl(r.pump_console(HOP, 0)).unwrap();
     let t = tail(&r, 0, "t-cage");
     assert_eq!(t[0], r.system().cage);
 }
@@ -288,7 +296,7 @@ fn hop_runner_cage_line_reaches_task_log() {
 fn hop_runner_no_cage_line_when_empty() {
     let mut r = runner(11, &[("node.os", "hopos")]);
     run(&mut r, "t-nocage", &hop_job()).unwrap();
-    bl(r.pump_logs(0));
+    bl(r.pump_console(HOP, 0)).unwrap();
     assert_eq!(tail(&r, 0, "t-nocage")[0], "app leeft");
 }
 
@@ -398,7 +406,7 @@ fn hop_runner_rejections() {
 fn hop_runner_logs_blijven_na_het_einde() {
     let mut r = runner(11, &[("node.os", "hopos")]);
     let pid = run(&mut r, "t-retire", &hop_job()).unwrap();
-    bl(r.pump_logs(0));
+    bl(r.pump_console(HOP, 0)).unwrap();
     let before = tail(&r, 0, "t-retire");
     assert!(!before.is_empty());
     bl(r.stop(
@@ -730,16 +738,13 @@ fn adopt_running_restores_logs() {
     let mut r = runner(3, &[]);
     r.system_mut().live(2);
     r.system_mut()
-        .slots
-        .get_mut(&2)
-        .unwrap()
-        .logs
-        .push_back("na de herstart".into());
+        .console
+        .push_back("slot 2: na de herstart".into());
     assert_eq!(
         bl(r.adopt_running(&[("kept".into(), Slot(2))])).unwrap(),
         ["kept"]
     );
-    bl(r.pump_logs(0));
+    bl(r.pump_console(HOP, 0)).unwrap();
     assert_eq!(tail(&r, 0, "kept"), ["na de herstart"]);
 }
 
@@ -876,13 +881,43 @@ fn env_key_and_vars() {
 fn the_system_tasks_have_their_rings_from_the_start() {
     let mut r = runner(2, &[]);
     assert!(r.logs(0, types::KERN_TASK, Stream::Stdout).is_some());
-    r.system_line(types::HOP_TASK, "hop: agent up HOP_UP");
+    r.system_mut()
+        .console
+        .push_back(format!("slot {}: hop: agent up HOP_UP", HOP.0));
+    bl(r.pump_console(HOP, 0)).unwrap();
     assert_eq!(tail(&r, 0, types::HOP_TASK), ["hop: agent up HOP_UP"]);
     // Ruimer dan een app: 200 regels.
     for i in 0..300 {
-        r.system_line(types::HOP_TASK, &i.to_string());
+        r.system_mut()
+            .console
+            .push_back(format!("slot {}: {i}", HOP.0));
     }
+    bl(r.pump_console(HOP, 0)).unwrap();
     let t = tail(&r, 0, types::HOP_TASK);
     assert_eq!(t.len(), SYSTEM_LOG_LINES);
     assert_eq!(t.last().map(String::as_str), Some("299"));
+}
+
+#[test]
+fn the_console_is_split_on_slot() {
+    // Eén ring bij de kern (hop-os f88f70f): de regel van een app staat erin
+    // als `slot N: ...`. Hop zet hem bij de taak van slot N, zijn eigen bij
+    // `hop`, en de rest (de kern zelf, een slot van niemand) heel bij `kern`.
+    let mut r = runner(4, &[]);
+    let pid = run(&mut r, "t-split", &hop_job()).unwrap();
+    bl(r.pump_console(HOP, 0)).unwrap();
+    let c = &mut r.system_mut().console;
+    c.push_back(format!("slot {pid}: hello"));
+    c.push_back(format!("slot {}: hop: HOP_UP", HOP.0));
+    c.push_back("HOPOS_TICK".into());
+    c.push_back("slot 9: from nobody".into());
+    c.push_back("slot x: not a slot".into());
+    bl(r.pump_console(HOP, 0)).unwrap();
+    assert_eq!(tail(&r, 0, "t-split"), ["app leeft", "hello"]);
+    assert_eq!(tail(&r, 0, types::HOP_TASK), ["hop: HOP_UP"]);
+    assert_eq!(
+        tail(&r, 0, types::KERN_TASK),
+        ["HOPOS_TICK", "slot 9: from nobody", "slot x: not a slot"]
+    );
+    assert!(r.system().console.is_empty(), "pumped until empty");
 }

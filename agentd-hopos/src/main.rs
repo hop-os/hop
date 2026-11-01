@@ -177,26 +177,11 @@ static DISPATCH_Q: DispatchQueue = Mailbox::new();
 /// De brievenbus van de eigenaar.
 static INBOX: Inbox = Mailbox::new();
 
-/// De eigen regels van Hop die niet uit de [`Node`] komen (de taken van de
-/// binary: klok, store, de start). [`say!`] zet ze op de console én hier; de
-/// eigenaar zet ze in de ring van de systeemtaak `hop` (`/logs/hop/stdout`),
-/// in het proces en niet via de console van de kern. Vol is droppen: een
-/// logregel mag de node nooit ophouden.
-static HOP_LOG: Mailbox<String, HOP_LOG_Q> = Mailbox::new();
-
-/// Zoveel regels wachten hoogstens op de eigenaar: de start zegt er een stuk
-/// of tien voordat de node bestaat.
-const HOP_LOG_Q: usize = 32;
-
-/// `applib::log!` met een kopie in [`HOP_LOG`]: een regel van Hop op de
-/// console en in de ring van `hop`.
-macro_rules! say {
-    ($($arg:tt)*) => {{
-        let line = format!($($arg)*);
-        log!("{line}");
-        let _ = HOP_LOG.try_send(line);
-    }};
-}
+/// Nieuws op de console, van de store-taak naar de eigenaar: de lange wacht
+/// (`NEXT_STORE` met `NEXT_STORE_LOGS`) gaf `LOG_NEWS`, dus de eigenaar haalt
+/// de console leeg (`Node::pump_logs`, besluit H8). Vol is al gemeld: de
+/// eigenaar leest toch tot leeg.
+static LOG_NEWS: Mailbox<(), 1> = Mailbox::new();
 
 /// Stopt Hop hard: één regel met de reden en `HOP_FATAL step=<stap>`, het
 /// net-afscheid en de exit met `code` (een `EXIT_*` per soort).
@@ -206,7 +191,7 @@ macro_rules! say {
 /// watchdog reset de node. Geen `return` (exit 0), geen `pending()` (een
 /// node die slaat maar niets doet), geen regel-en-door.
 async fn fail(app: &App, code: u64, step: &str, why: impl core::fmt::Display) -> ! {
-    say!("hop: {why}; stopping (exit {code}) HOP_FATAL step={step}");
+    log!("hop: {why}; stopping (exit {code}) HOP_FATAL step={step}");
     app.shutdown(code).await;
     // `shutdown` keert nooit terug (`App::exit` parkeert de core); dat staat
     // alleen niet in zijn type.
@@ -408,7 +393,7 @@ async fn clock_task(
             Err(e) => {
                 fails = fails.saturating_add(1);
                 if fails <= NTP_LOUD || fails.is_multiple_of(12) {
-                    say!(
+                    log!(
                         "hop: SNTP {server}:{port} failed ({fails}x): {e}; the clock stays as it is HOP_SNTP_FAIL"
                     );
                 }
@@ -423,13 +408,13 @@ async fn clock_task(
 /// weigert, of bij de start niet antwoordt, is een kapotte node: [`fail`].
 async fn clock_set(app: &App, step: sntp::ClockStep, sample: &Sample, server: &str) {
     match step {
-        sntp::ClockStep::Synced(unix_ns) => say!(
+        sntp::ClockStep::Synced(unix_ns) => log!(
             "hop: clock set from {server} (stratum {}, delay {} us) to {} s HOP_CLOCK_SYNCED",
             sample.stratum,
             sample.delay_ns / 1000,
             unix_ns / 1_000_000_000
         ),
-        sntp::ClockStep::Later(e) => say!(
+        sntp::ClockStep::Later(e) => log!(
             "hop: SET_CLOCK: {e}; the clock stays as it was until the next sync HOP_CLOCK_FAIL"
         ),
         sntp::ClockStep::Fatal(e) => {
@@ -440,9 +425,12 @@ async fn clock_set(app: &App, step: sntp::ClockStep, sample: &Sample, server: &s
 
 /// De object-store van de apps (`agentd_hopos::objstore`): haalt de
 /// store-calls van de apps op bij de kern (`NEXT_STORE`, een lange wacht),
-/// doet de S3-kant en meldt af. Een eigen system-verbinding, blijvend: de
-/// kern geeft het slot van Hop er één meer dan een app (`MAX_HOP_CONNS`).
-/// Zonder `HOPOS_S3_*` weigert hij elke call luid, zodat een app hoort
+/// doet de S3-kant en meldt af. Dezelfde wacht komt terug met nieuws op de
+/// console (`NEXT_STORE_LOGS`, besluit H8): dat gaat als [`LOG_NEWS`] naar de
+/// eigenaar, die de console leeg haalt over de hoofdverbinding. Zo pollt
+/// niemand `NEXT_LOG` per tik, en kost de console geen derde verbinding.
+/// Een eigen system-verbinding, blijvend: de kern geeft het slot van Hop er
+/// één meer dan een app (`MAX_HOP_CONNS`). Zonder `HOPOS_S3_*` weigert hij elke call luid, zodat een app hoort
 /// waarom zijn pull faalt.
 async fn store_task(
     app: &'static App,
@@ -451,7 +439,7 @@ async fn store_task(
     s3: Option<agentd_hopos::env::S3Config>,
     cluster: String,
 ) {
-    use agentd_hopos::objstore::{Service, bucket};
+    use agentd_hopos::objstore::{Served, Service, bucket};
     let bucket = s3.map(|c| {
         let cfg = bucket::Config {
             endpoint: c.endpoint,
@@ -472,12 +460,12 @@ async fn store_task(
             chain_secs,
         );
         if b.is_plain_http() {
-            say!(
+            log!(
                 "hop: object store {} is plain http: requests are signed but readable on the way; use https outside a test HOP_STORE_PLAIN_HTTP",
                 cfg.endpoint
             );
         }
-        say!(
+        log!(
             "hop: object store for apps: {} bucket {} under apps/{cluster}/ HOP_STORE_UP",
             cfg.endpoint,
             cfg.bucket
@@ -485,7 +473,7 @@ async fn store_task(
         b
     });
     if bucket.is_none() {
-        say!(
+        log!(
             "hop: no object store configured (hopos.s3.*); app store calls are refused HOP_STORE_NONE"
         );
     }
@@ -494,14 +482,19 @@ async fn store_task(
     let mut refused: u32 = 0;
     loop {
         match svc.serve_one(&mut sys).await {
+            // Geen regel hier: elke regel op de console wekt deze wacht.
+            Ok(Served::Logs) => {
+                let _ = LOG_NEWS.try_send(());
+                refused = 0;
+            }
             // Een pull van iets dat er niet is, is een vraag, geen fout.
-            Ok(Some(o))
+            Ok(Served::Done(o))
                 if !matches!(
                     o.status,
                     runner::StoreStatus::Ok | runner::StoreStatus::NotFound
                 ) =>
             {
-                say!(
+                log!(
                     "hop: store {} {} for slot {}: {} HOP_STORE_FAIL",
                     o.task.op.name(),
                     o.task.key,
@@ -509,7 +502,7 @@ async fn store_task(
                     o.why
                 )
             }
-            Ok(Some(o)) if !o.delivered => say!(
+            Ok(Served::Done(o)) if !o.delivered => log!(
                 "hop: store {} {} for slot {}: the task was gone, result dropped HOP_STORE_GONE",
                 o.task.op.name(),
                 o.task.key,
@@ -521,7 +514,7 @@ async fn store_task(
                 // eens per minuut.
                 refused = refused.saturating_add(1);
                 if refused <= 3 || refused.is_multiple_of(60) {
-                    say!("hop: NEXT_STORE failed ({refused}x): {e} HOP_STORE_KERNEL");
+                    log!("hop: NEXT_STORE failed ({refused}x): {e} HOP_STORE_KERNEL");
                 }
                 exec.after(Duration::from_secs(1)).await;
             }
@@ -537,10 +530,10 @@ async fn store_task(
 fn entropy(app: &App) -> Rng {
     let rng = Rng::open(app);
     match rng.origin() {
-        o if o.is_hardware() => say!(
+        o if o.is_hardware() => log!(
             "hop: TLS randomness from the kernel seed ({o}, hardware) mixed with timer jitter ({JITTER_ROUNDS} samples) HOP_TLS_ENTROPY_HW source={o}"
         ),
-        o => say!(
+        o => log!(
             "hop: TLS randomness from the kernel seed and timer jitter ({JITTER_ROUNDS} samples), but the kernel seeds itself from {o}: this node has no hardware RNG HOP_TLS_ENTROPY_WEAK"
         ),
     }
@@ -595,7 +588,7 @@ async fn start_cluster(
         cluster_client(app, net, exec, 2, CLUSTER_IDLE),
         wall_secs,
     );
-    say!(
+    log!(
         "hop: cluster state in {} HOP_STATE_STORE",
         lock::StateBackend::describe(&state)
     );
@@ -643,6 +636,8 @@ enum Woke {
     Mail(Mail),
     /// Een stap van de lopende download.
     Piece(u64, Piece),
+    /// Nieuws op de console ([`LOG_NEWS`]).
+    Logs,
     /// De bus of de tik: de lus kijkt zelf.
     Look,
     /// De stop-bel van de kern.
@@ -650,7 +645,7 @@ enum Woke {
 }
 
 /// Wacht op een verzoek in de bus, een bericht van de cluster, een brok van
-/// de downloadtaak, de tik, of de stop-bel.
+/// de downloadtaak, nieuws op de console, de tik, of de stop-bel.
 ///
 /// De bel gaat vóór alles: wat na hem nog binnenkomt, kent de volgende Hop
 /// niet, dus de eigenaar handelt het niet meer af.
@@ -668,6 +663,7 @@ async fn wake(
     let mut a = pin!(hub.wait());
     let mut b = pin!(inbox.recv());
     let mut d = pieces.recv();
+    let mut l = pin!(LOG_NEWS.recv());
     let mut c = pin!(tick);
     let mut s = pin!(stop);
     poll_fn(|cx| {
@@ -679,6 +675,9 @@ async fn wake(
         }
         if let Poll::Ready((seq, p)) = core::pin::Pin::new(&mut d).poll(cx) {
             return Poll::Ready(Woke::Piece(seq, p));
+        }
+        if l.as_mut().poll(cx).is_ready() {
+            return Poll::Ready(Woke::Logs);
         }
         if a.as_mut().poll(cx).is_ready() || c.as_mut().poll(cx).is_ready() {
             return Poll::Ready(Woke::Look);
@@ -768,7 +767,7 @@ where
             // Kan alleen met afgebroken opdrachten die de taak nog niet
             // oversloeg; de volgende flush probeert het opnieuw.
             node.order_back(&back);
-            say!(
+            log!(
                 "hop: download {seq} waits: the download queue is full ({}) HOP_DOWNLOAD_QUEUE_FULL",
                 download::ORDERS
             );
@@ -791,7 +790,7 @@ async fn accept(
         let mut stream = match listener.accept().await {
             Ok(s) => s,
             Err(e) => {
-                say!("hop: accept on :{number}: {e}");
+                log!("hop: accept on :{number}: {e}");
                 exec.after(Duration::from_millis(100)).await;
                 continue;
             }
@@ -890,7 +889,7 @@ async fn leave<S, I>(
 
 async fn resident(app: &'static App) {
     let exec: &'static Exec = EXEC.get();
-    say!("hop: resident starting in slot {} HOP_BOOT", app.slot());
+    log!("hop: resident starting in slot {} HOP_BOOT", app.slot());
     let net = match appnet::up(app) {
         Ok(n) => n,
         Err(e) => {
@@ -926,10 +925,10 @@ async fn resident(app: &'static App) {
         Err(e) => fail(app, EXIT_CONFIG, "config", e).await,
     };
     if cfg.insecure {
-        say!("hop: WARNING API authentication is OFF (HOPOS_INSECURE=1) HOPOS_API_INSECURE");
+        log!("hop: WARNING API authentication is OFF (HOPOS_INSECURE=1) HOPOS_API_INSECURE");
     }
     if cfg.insecure_ignored {
-        say!("hop: HOPOS_INSECURE=1 ignored: HOPOS_APIKEY is set, the API authenticates");
+        log!("hop: HOPOS_INSECURE=1 ignored: HOPOS_APIKEY is set, the API authenticates");
     }
     if app.wall_ns().is_none() {
         // De kern zet de wandklok vóór de eerste instructie van Hop
@@ -970,7 +969,7 @@ async fn resident(app: &'static App) {
     // 01-11). Een herstart hangt zo niet af van een server buiten het LAN.
     let (ntp_host, ntp_port) = sntp::server_from(app.env(sntp::ENV_NTP));
     if state.as_ref().is_some_and(|h| h.clock) {
-        say!(
+        log!(
             "hop: the previous Hop set the kernel's clock; trusting it HOP_CLOCK_SYNCED from=state"
         );
     } else {
@@ -1060,9 +1059,6 @@ async fn resident(app: &'static App) {
     // vóór de eerste registratie bij een leader. Een blob in kerngeheugen
     // sterft met de boot, dus geen spook van een vorige (7726782). Wat
     // daarna nog draait, is van niemand.
-    while let Some(l) = HOP_LOG.try_recv() {
-        node.hop_line(&l);
-    }
     let kept = match node.restore(state, now(app)).await {
         Ok(k) => k,
         Err(f) => {
@@ -1150,7 +1146,7 @@ async fn resident(app: &'static App) {
             .await;
         }
     }
-    say!(
+    log!(
         "hop: agent up node={} cluster={} agent=:{} leader=:{} cores={} system={} HOP_UP",
         cfg.node_id,
         cfg.cluster,
@@ -1198,10 +1194,6 @@ async fn resident(app: &'static App) {
             let step = node.set_clock(&sample, exec.now()).await;
             clock_set(app, step, &sample, &ntp_host).await;
         }
-        // De regels van de andere taken van Hop naar de ring van `hop`.
-        while let Some(l) = HOP_LOG.try_recv() {
-            node.hop_line(&l);
-        }
         // De antwoorden van de taken van de cluster (lease, link, staat,
         // dispatch); standalone blijft de inbox leeg.
         while let Some(m) = INBOX.try_recv() {
@@ -1219,6 +1211,12 @@ async fn resident(app: &'static App) {
         match wake(hub, &INBOX, &mut pieces, exec.after(wait), app.stopped()).await {
             Woke::Mail(m) => node.on_mail(m, now(app)),
             Woke::Piece(seq, p) => node.on_piece(seq, p, now(app)).await,
+            Woke::Logs => {
+                if let Err(f) = node.pump_logs(now(app)).await {
+                    flush(&mut node);
+                    fail(app, f.code, "logs", f.why).await;
+                }
+            }
             Woke::Look => {}
             Woke::Stop => {
                 // De laatste staat, dan terug: applib doet het net-afscheid
