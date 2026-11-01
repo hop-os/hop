@@ -346,6 +346,20 @@ fn a_refused_state_op_is_a_refusal_not_a_lost_connection() {
 }
 
 #[test]
+fn no_storage_is_not_found() {
+    // Zonder schijf zegt de kern op elke bestandscall STATUS_NO_ENT (hop-os
+    // 4dc42af), net als op een lege schijf: voor Hop "geen init-jobs".
+    let (mut s, k) = sys(4);
+    k.0.borrow_mut()
+        .files
+        .insert(String::from("/hop/init-jobs.json"), b"[]".to_vec());
+    assert_eq!(bl(s.conn_mut().stat("/hop/init-jobs.json")).unwrap(), 2);
+    k.0.borrow_mut().no_storage = true;
+    let e = bl(s.conn_mut().stat("/hop/init-jobs.json")).unwrap_err();
+    assert!(matches!(e, applib::sys::Error::NotFound { .. }), "{e:?}");
+}
+
+#[test]
 fn next_log_and_set_clock() {
     let (mut s, k) = sys(4);
     k.0.borrow_mut()
