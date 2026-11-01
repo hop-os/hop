@@ -30,6 +30,7 @@ use sync::spsc::Channel;
 
 use crate::download::{Orders, Pieces, download_task};
 use crate::env::{BootConfig, BootError};
+use crate::forward::Routed;
 use crate::{Answer, Handoff, Hub, Images, Kept, Node, Port, Question, Sink};
 
 const KEY: &[u8] = b"test-key";
@@ -172,7 +173,7 @@ fn http(node: &mut TestNode, port: Port, raw: Vec<u8>) -> (u16, String) {
     };
     block_on(hop_http::serve(
         conn,
-        async |req: Request| node.handle(port, &req, T0).await,
+        async |req: Request| reply(node.handle_routed(port, &req, T0).await.unwrap()),
         &mut NoStreams,
     ))
     .unwrap();
@@ -192,8 +193,22 @@ fn reply_of(out: &Rc<RefCell<Vec<u8>>>) -> (u16, String) {
 }
 
 /// Een tik, en dan de downloads die hij gaf (een herstart).
+/// Een antwoord van de node; een doorgifte kan in deze toetsen niet (een
+/// luide 502, zoals de werker hem zou weigeren).
+fn reply(r: Routed) -> Reply {
+    match r {
+        Routed::Reply(r) => r,
+        Routed::Forward(f) => Reply::Plain(crate::node::refuse_forward(&f)),
+    }
+}
+
+/// Eén verzoek op `port`, met de acties van de agent erna.
+fn handle(n: &mut TestNode, port: Port, req: &Request, now: u64) -> Reply {
+    reply(block_on(n.handle_routed(port, req, now)).unwrap())
+}
+
 fn tick(node: &mut TestNode, now: u64) {
-    block_on(node.tick(now));
+    block_on(node.tick(now)).unwrap();
     block_on(node.settle(now));
 }
 
@@ -577,7 +592,7 @@ fn http_once(node: &mut TestNode, port: Port, raw: Vec<u8>) -> (u16, String) {
     let mut none = NoStreams;
     let served = pin!(hop_http::serve(
         conn,
-        async |req: Request| node.handle(port, &req, T0).await,
+        async |req: Request| reply(node.handle_routed(port, &req, T0).await.unwrap()),
         &mut none,
     ))
     .poll(&mut Context::from_waker(Waker::noop()));
@@ -636,7 +651,7 @@ fn the_api_answers_while_an_image_streams() {
         let _ = task.as_mut().poll(&mut cx);
         // Eén brok per ronde, zoals de lus van de eigenaar.
         if let Some((seq, p)) = rx.try_recv() {
-            block_on(n.on_piece(seq, p, T0));
+            block_on(n.on_piece(seq, p, T0)).unwrap();
             fed += 1;
         }
         if fed == SIZE / CHUNK / 2 && asked.is_none() {
@@ -710,7 +725,7 @@ fn a_stopped_task_cancels_its_download() {
         wanted.store(n.wanted(), Relaxed);
         let _ = task.as_mut().poll(&mut cx);
         if let Some((seq, p)) = rx.try_recv() {
-            block_on(n.on_piece(seq, p, T0));
+            block_on(n.on_piece(seq, p, T0)).unwrap();
             fed += 1;
         }
         if fed == 4 {
@@ -726,7 +741,7 @@ fn a_stopped_task_cancels_its_download() {
         wanted.store(n.wanted(), Relaxed);
         let _ = task.as_mut().poll(&mut cx);
         if let Some((seq, p)) = rx.try_recv() {
-            block_on(n.on_piece(seq, p, T0));
+            block_on(n.on_piece(seq, p, T0)).unwrap();
         }
     }
     assert_eq!(n.wanted(), 0, "nothing is downloading");
@@ -903,7 +918,7 @@ fn a_log_is_followed_live_through_the_leader() {
         Method::Get,
         &format!("/v1/agents/n1/logs/{task}/stdout?follow=1"),
     );
-    let Reply::Stream { ask, first, .. } = block_on(n.handle(Port::Leader, &req, T0)) else {
+    let Reply::Stream { ask, first, .. } = handle(&mut n, Port::Leader, &req, T0) else {
         panic!("no stream");
     };
     assert!(first.is_empty());
@@ -929,23 +944,24 @@ fn a_log_is_followed_live_through_the_leader() {
         Method::Get,
         &format!("/v1/agents/n1/logs/{task}/stdout?follow=0"),
     );
-    let Reply::Events { lines, .. } = block_on(n.handle(Port::Leader, &snap, T0)) else {
+    let Reply::Events { lines, .. } = handle(&mut n, Port::Leader, &snap, T0) else {
         panic!("no snapshot");
     };
     assert_eq!(lines, ["one", "two"]);
     n.stream_done();
     // Zonder query: de levende tail, Go's contract (het dashboard vraagt zo).
     let dash = signed(Method::Get, &format!("/v1/agents/n1/logs/{task}/stdout"));
-    let Reply::Stream { ask, .. } = block_on(n.handle(Port::Leader, &dash, T0)) else {
+    let Reply::Stream { ask, .. } = handle(&mut n, Port::Leader, &dash, T0) else {
         panic!("the dashboard's log route is no live tail");
     };
     assert_eq!(n.poll(&ask, T0).text, "data: one\n\ndata: two\n\n");
     // Een onbekende agent: 404; een onbekende taak: geen stroom.
-    let Reply::Plain(r) = block_on(n.handle(
+    let Reply::Plain(r) = handle(
+        &mut n,
         Port::Leader,
         &signed(Method::Get, "/v1/agents/zz/logs/t/stdout"),
         T0,
-    )) else {
+    ) else {
         panic!("no plain reply");
     };
     assert_eq!(r.status, 404);
@@ -957,7 +973,7 @@ fn events_and_tasks_through_the_leader() {
     let (mut n, _k) = node();
     // hop events: de stroom begint met een ping en het huidige nummer.
     let Reply::Stream { ask, first, .. } =
-        block_on(n.handle(Port::Leader, &signed(Method::Get, "/v1/events"), T0))
+        handle(&mut n, Port::Leader, &signed(Method::Get, "/v1/events"), T0)
     else {
         panic!("no stream");
     };
@@ -973,7 +989,7 @@ fn events_and_tasks_through_the_leader() {
     assert!(!c.done);
 
     // hop jobs: /v1/tasks met de taken van de eigen agent.
-    let Reply::Plain(r) = block_on(n.handle(Port::Leader, &signed(Method::Get, "/v1/tasks"), T0))
+    let Reply::Plain(r) = handle(&mut n, Port::Leader, &signed(Method::Get, "/v1/tasks"), T0)
     else {
         panic!("no plain reply");
     };
@@ -982,28 +998,29 @@ fn events_and_tasks_through_the_leader() {
     assert!(body.contains(r#""tasks_by_agent":{"n1":[{"#), "{body}");
     assert!(body.contains(r#""job_name":"web""#), "{body}");
     // En de capaciteit via de leader.
-    let Reply::Plain(r) = block_on(n.handle(
+    let Reply::Plain(r) = handle(
+        &mut n,
         Port::Leader,
         &signed(Method::Get, "/v1/agents/n1/capacity"),
         T0,
-    )) else {
+    ) else {
         panic!("no plain reply");
     };
     assert_eq!(r.status, 200);
 
     // Het plafond: tot `MAX_STREAMS` stromen mag, de volgende niet.
     for _ in 1..crate::node::MAX_STREAMS {
-        let more = block_on(n.handle(Port::Leader, &signed(Method::Get, "/v1/events"), T0));
+        let more = handle(&mut n, Port::Leader, &signed(Method::Get, "/v1/events"), T0);
         assert!(matches!(more, Reply::Stream { .. }));
     }
-    let Reply::Plain(r) = block_on(n.handle(Port::Leader, &signed(Method::Get, "/v1/events"), T0))
+    let Reply::Plain(r) = handle(&mut n, Port::Leader, &signed(Method::Get, "/v1/events"), T0)
     else {
         panic!("a stream over the ceiling was admitted");
     };
     assert_eq!(r.status, 503);
     // Na een afmelding weer wel.
     n.stream_done();
-    let again = block_on(n.handle(Port::Leader, &signed(Method::Get, "/v1/events"), T0));
+    let again = handle(&mut n, Port::Leader, &signed(Method::Get, "/v1/events"), T0);
     assert!(matches!(again, Reply::Stream { .. }));
 }
 
@@ -1030,7 +1047,7 @@ fn the_dashboard_gets_cors_on_every_agent_answer() {
         "/v1/agents/n1/capacity",
         "/leader",
     ] {
-        let r = block_on(n.handle(Port::Agent, &signed(Method::Get, target), T0));
+        let r = handle(&mut n, Port::Agent, &signed(Method::Get, target), T0);
         assert_eq!(allow_origin(&r), Some("*"), "{target}: {r:?}");
         let Reply::Plain(p) = &r else {
             panic!("{target}: not a plain answer");
@@ -1043,9 +1060,12 @@ fn the_dashboard_gets_cors_on_every_agent_answer() {
         );
     }
     // De takentabel van het dashboard: de taak van web op n1.
-    let Reply::Plain(p) =
-        block_on(n.handle(Port::Agent, &signed(Method::Get, "/v1/jobs/web/status"), T0))
-    else {
+    let Reply::Plain(p) = handle(
+        &mut n,
+        Port::Agent,
+        &signed(Method::Get, "/v1/jobs/web/status"),
+        T0,
+    ) else {
         panic!("no plain reply");
     };
     let v = types::json::parse(&p.body).unwrap();
@@ -1061,15 +1081,20 @@ fn the_dashboard_gets_cors_on_every_agent_answer() {
         1
     );
     // De kop van een stroom (SSE) ook.
-    let r = block_on(n.handle(Port::Agent, &signed(Method::Get, "/v1/events"), T0));
+    let r = handle(&mut n, Port::Agent, &signed(Method::Get, "/v1/events"), T0);
     assert!(matches!(r, Reply::Stream { .. }), "{r:?}");
     assert_eq!(allow_origin(&r), Some("*"));
     n.stream_done();
     // En een weigering: ongetekend is 401, met de koppen.
-    let r = block_on(n.handle(Port::Agent, &Request::new(Method::Get, "/v1/jobs", b""), T0));
+    let r = handle(
+        &mut n,
+        Port::Agent,
+        &Request::new(Method::Get, "/v1/jobs", b""),
+        T0,
+    );
     assert_eq!(allow_origin(&r), Some("*"));
     // De leader-poort is geen browserpoort: daar geen koppen, zoals in Go.
-    let r = block_on(n.handle(Port::Leader, &signed(Method::Get, "/v1/status"), T0));
+    let r = handle(&mut n, Port::Leader, &signed(Method::Get, "/v1/status"), T0);
     assert_eq!(allow_origin(&r), None);
 }
 
@@ -1431,7 +1456,7 @@ fn the_restart_reply_is_out_before_hop_leaves() {
             let Question::Http(port, req) = q else {
                 panic!("{q:?}")
             };
-            let answer = match n.handle_routed(port, &req, T0).await {
+            let answer = match n.handle_routed(port, &req, T0).await.unwrap() {
                 crate::forward::Routed::Reply(r) => Answer::Reply(r),
                 crate::forward::Routed::Forward(f) => Answer::Forward(f),
             };
@@ -1522,7 +1547,7 @@ fn the_kernel_log_reaches_kern_on_the_agent_and_through_the_leader() {
     );
     // Via de leader, zoals het dashboard hem vraagt: de levende tail.
     let dash = signed(Method::Get, "/v1/agents/n1/logs/kern/stdout");
-    let Reply::Stream { ask, .. } = block_on(n.handle(Port::Leader, &dash, T0)) else {
+    let Reply::Stream { ask, .. } = handle(&mut n, Port::Leader, &dash, T0) else {
         panic!("the dashboard's kern log is no live tail");
     };
     let c = n.poll(&ask, T0);
@@ -1568,7 +1593,7 @@ fn hop_keeps_its_own_lines_in_the_ring_of_hop() {
         "{body}"
     );
     let snap = signed(Method::Get, "/v1/agents/n1/logs/hop/stdout?follow=0");
-    let Reply::Events { lines, .. } = block_on(n.handle(Port::Leader, &snap, T0)) else {
+    let Reply::Events { lines, .. } = handle(&mut n, Port::Leader, &snap, T0) else {
         panic!("no snapshot of hop");
     };
     assert_eq!(
@@ -1590,40 +1615,45 @@ fn sample() -> crate::sntp::Sample {
 }
 
 #[test]
-fn a_kernel_that_refuses_set_clock_stops_hop() {
-    use crate::sntp::{ClockStep, apply};
-    let k = FakeKern::new(4);
-    k.0.borrow_mut().clock_refused = true;
-    let mut sys = KernSys::new(k.client(), 1);
-    // Ook na de start: de kern mag hem nooit weigeren.
-    for started in [false, true] {
-        let step = block_on(apply(&mut sys, &sample(), 2_000, started));
-        assert!(
-            matches!(step, ClockStep::Fatal(runner::SysError::Refused(_))),
-            "{step:?}"
-        );
-    }
+fn a_silent_kernel_after_the_start_stops_hop() {
+    // Besluit H1: ook na de start is een call zonder antwoord fataal, geen
+    // meting die niet telt en geen poll die het later nog eens vraagt.
+    let (mut n, k) = node();
+    http(&mut n, Port::Leader, wire("POST", "/v1/jobs", JOB));
+    tick(&mut n, T0 + SECOND);
+    k.0.borrow_mut().drop_calls = 2;
+    let f = block_on(n.tick(T0 + 20 * SECOND)).unwrap_err();
+    assert_eq!(f.code, abi::hopabi::EXIT_KERNEL);
+    assert!(f.why.contains("SLOT_STATUS"), "{f:?}");
 }
 
 #[test]
-fn a_silent_kernel_at_the_start_set_clock_stops_hop_later_not() {
-    use crate::sntp::{ClockStep, apply};
+fn a_kernel_that_refuses_set_clock_stops_hop() {
+    use crate::sntp::apply;
+    let k = FakeKern::new(4);
+    k.0.borrow_mut().clock_refused = true;
+    let mut sys = KernSys::new(k.client(), 1);
+    // De kern mag hem nooit weigeren.
+    let set = block_on(apply(&mut sys, &sample(), 2_000));
+    assert!(matches!(set, Err(runner::SysError::Refused(_))), "{set:?}");
+}
+
+#[test]
+fn a_silent_kernel_on_set_clock_stops_hop() {
+    use crate::sntp::apply;
     let k = FakeKern::new(4);
     let mut sys = KernSys::new(k.client(), 1);
-    // Geen antwoord (de client herhaalt één keer, dus twee calls weg).
+    // Geen antwoord (de client herhaalt één keer, dus twee calls weg): bij
+    // de start en daarna hetzelfde, een fout (besluit H1).
     k.0.borrow_mut().drop_calls = 2;
-    let step = block_on(apply(&mut sys, &sample(), 2_000, false));
+    let set = block_on(apply(&mut sys, &sample(), 2_000));
     assert!(
-        matches!(step, ClockStep::Fatal(runner::SysError::Unreachable(_))),
-        "{step:?}"
+        matches!(set, Err(runner::SysError::Unreachable(_))),
+        "{set:?}"
     );
-    // Na de start (een flip onderweg): luid, maar Hop blijft.
-    k.0.borrow_mut().drop_calls = 2;
-    let step = block_on(apply(&mut sys, &sample(), 2_000, true));
-    assert!(matches!(step, ClockStep::Later(_)), "{step:?}");
     // En als de kern antwoordt: de tijd van de sample op het moment van nu.
-    let step = block_on(apply(&mut sys, &sample(), 2_000, false));
-    assert_eq!(step, ClockStep::Synced(1_790_000_000_000_001_000));
+    let set = block_on(apply(&mut sys, &sample(), 2_000));
+    assert_eq!(set, Ok(1_790_000_000_000_001_000));
     assert_eq!(k.0.borrow().clock, 1_790_000_000_000_001_000);
 }
 

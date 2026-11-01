@@ -271,8 +271,8 @@ pub trait SystemApi {
     ///
     /// `&mut self`: op HopOS is dit een call over de verbinding met de kern
     /// (applib's system-client), en die verbinding is van één eigenaar. Een
-    /// fout gaat naar boven, en de aanroeper beslist: bij de start (overnemen,
-    /// vegen) is hij hard, daarna telt de meting niet.
+    /// fout gaat naar boven, en de aanroeper beslist: op HopOS is hij hard,
+    /// bij de start en daarna (besluit H1).
     fn slot_status(&mut self, slot: Slot) -> impl Future<Output = Result<SlotStatus, SysError>>;
 
     /// `NEXT_LOG`: de volgende regel van de console van de kern in `buf`,

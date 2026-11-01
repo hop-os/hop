@@ -138,33 +138,40 @@ impl<B: Bucket> Service<B> {
     /// kern (geen verbinding, een kern zonder rij) gaat naar de aanroeper.
     pub async fn serve_one<S: SystemApi>(&mut self, sys: &mut S) -> Result<Served, SysError> {
         Ok(match sys.next_store(POLL_MS).await? {
-            StoreNext::Task(task) => Served::Done(self.handle(sys, task).await),
+            StoreNext::Task(task) => Served::Done(self.handle(sys, task).await?),
             StoreNext::Logs => Served::Logs,
             StoreNext::Quiet => Served::Quiet,
         })
     }
 
-    /// Eén opdracht: de S3-kant, dan de afmelding.
-    pub async fn handle<S: SystemApi>(&mut self, sys: &mut S, task: StoreTask) -> Outcome {
+    /// Eén opdracht: de S3-kant, dan de afmelding. Weigert de kern de
+    /// afmelding, dan was de app al weg; antwoordt hij niet, dan is dat een
+    /// fout voor de aanroeper (besluit H1).
+    pub async fn handle<S: SystemApi>(
+        &mut self,
+        sys: &mut S,
+        task: StoreTask,
+    ) -> Result<Outcome, SysError> {
         let (status, size, payload) = match self.run(sys, &task).await {
             Ok((size, names)) => (StoreStatus::Ok, size, names),
             Err((status, why)) => (status, 0, why.into_bytes()),
         };
-        let delivered = sys
-            .store_done(task.ticket, status, size, &payload)
-            .await
-            .is_ok();
+        let delivered = match sys.store_done(task.ticket, status, size, &payload).await {
+            Ok(()) => true,
+            Err(e @ SysError::Unreachable(_)) => return Err(e),
+            Err(_) => false,
+        };
         let why = if status == StoreStatus::Ok {
             String::new()
         } else {
             String::from_utf8_lossy(&payload).into_owned()
         };
-        Outcome {
+        Ok(Outcome {
             task,
             status,
             why,
             delivered,
-        }
+        })
     }
 
     /// De S3-kant van één opdracht: (maat, namen) of (status, reden).

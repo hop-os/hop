@@ -69,9 +69,8 @@ impl<C: Call> KernSys<C> {
             // Een naam die geen UTF-8 is, kan de client van de kern niet
             // terugsturen (zijn pad is tekst): meteen luid afmelden.
             let why = b"store: object name or path is not UTF-8";
-            let _ = self
-                .wire_store_done(t.ticket, StoreStatus::Denied, 0, why)
-                .await;
+            self.wire_store_done(t.ticket, StoreStatus::Denied, 0, why)
+                .await?;
             return Ok(StoreNext::Quiet);
         };
         Ok(StoreNext::Task(StoreTask {

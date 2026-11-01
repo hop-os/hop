@@ -53,7 +53,7 @@ use hop_http::{Ask, Chunk, Reply, refuse};
 use leader::{Leader, MemStore};
 use runner::{
     HopRunner, LogPolicy, RunState, Runner, Slot, SlotState, StartRequest, Started, Stream,
-    SystemApi, TaskRef,
+    SysError, SystemApi, TaskRef,
 };
 use types::time::{MILLISECOND, SECOND};
 use types::{Artifact, Driver, Job, Map, Nanos, SysUsage, Telemetry, Time};
@@ -62,7 +62,7 @@ use crate::download::{Order, Piece};
 use crate::env::BootConfig;
 use crate::forward::{Forward, Routed};
 use crate::local::Local;
-use crate::sntp::{ClockStep, Sample};
+use crate::sntp::Sample;
 use crate::{Fatal, VERSION};
 use abi::hopabi::{EXIT_INTERNAL, EXIT_KERNEL};
 
@@ -334,9 +334,14 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     /// eigen cores (de meetlat van de app via de kern, docs/apps.md) en
     /// geheugen als procent van zijn limiet (wat de app zelf in gebruik
     /// meldt), met de cores van zijn slot als noemer van de cpu en de core
-    /// waarop het slot draait. Zonder meting blijft het vorige getal staan.
-    async fn record_usage(&mut self, task_id: &str, pid: u32) {
-        let (cpu, mem, cores, core) = self.runner.usage(&TaskRef { id: task_id, pid }).await;
+    /// waarop het slot draait. Zonder meting blijft het vorige getal staan;
+    /// een kern die de stand niet geeft, is [`Fatal`].
+    async fn record_usage(&mut self, task_id: &str, pid: u32) -> Result<(), Fatal> {
+        let (cpu, mem, cores, core) = self
+            .runner
+            .usage(&TaskRef { id: task_id, pid })
+            .await
+            .map_err(|e| kern(format_args!("SLOT_STATUS of task {task_id}"), e))?;
         let limit = self
             .agent
             .task(task_id)
@@ -348,42 +353,47 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             Some(m) if limit > 0 => {
                 (u128::from(m.min(limit)) * 1000 / u128::from(limit)) as f64 / 10.0
             }
-            _ => return,
+            _ => return Ok(()),
         };
         if let Some(c) = cpu {
             self.agent
                 .record_usage(task_id, f64::from(c), mem_pct, cores, core);
         }
+        Ok(())
     }
 
     /// Meet de kern (slot 0) en Hop zelf, één keer per monitor-interval.
     ///
     /// Dezelfde meetlat als een app ([`HopRunner::usage`]); de standen per
     /// slot houdt de kern-verbinding bij, en een taak zit nooit in slot 0 of
-    /// in het slot van Hop. Een slot dat niet draait, of een kern die slot 0
-    /// nog niet kent (die geeft een fout), is niets gemeten.
-    async fn measure_system(&mut self, now: Nanos) {
+    /// in het slot van Hop. Een slot dat niet draait, is niets gemeten; een
+    /// kern die de stand niet geeft, is [`Fatal`].
+    async fn measure_system(&mut self, now: Nanos) -> Result<(), Fatal> {
         if now < self.next_measure {
-            return;
+            return Ok(());
         }
         self.next_measure = now.saturating_add(self.agent.settings().monitor_interval());
-        self.kern = self.slot_usage(Slot(0)).await;
-        self.hop = self.slot_usage(self.own_slot).await;
+        self.kern = self.slot_usage(Slot(0)).await?;
+        self.hop = self.slot_usage(self.own_slot).await?;
+        Ok(())
     }
 
-    async fn slot_usage(&mut self, slot: Slot) -> SysUsage {
-        let Ok(s) = self.runner.system_mut().slot_status(slot).await else {
-            return SysUsage::default();
-        };
+    async fn slot_usage(&mut self, slot: Slot) -> Result<SysUsage, Fatal> {
+        let s = self
+            .runner
+            .system_mut()
+            .slot_status(slot)
+            .await
+            .map_err(|e| kern(format_args!("SLOT_STATUS of slot {}", slot.0), e))?;
         if s.state != SlotState::Running {
-            return SysUsage::default();
+            return Ok(SysUsage::default());
         }
-        SysUsage {
+        Ok(SysUsage {
             cpu_percent: s.cpu_pct.map(f64::from),
             mem_bytes: s.mem_sys,
             ram_bytes: s.mem_limit,
             core: s.core,
-        }
+        })
     }
 
     /// Wat de heartbeat meldt: de temperatuur die de kern elke seconde op
@@ -497,7 +507,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
                 "hop: {gone} task(s) in the kernel's state no longer run; the leader places them again HOP_ADOPT_SKIPPED n={gone}"
             ));
         }
-        self.drain(now).await;
+        self.drain(now).await?;
         Ok(Kept::Adopted(n))
     }
 
@@ -520,8 +530,8 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     /// Zet de klok van de kern uit een uurmeting (`SET_CLOCK` over de
     /// hoofdverbinding, zie [`crate::sntp::apply`]). De eerste zette de
     /// start, vóór de node er was.
-    pub async fn set_clock(&mut self, sample: &Sample, now: u64) -> ClockStep {
-        crate::sntp::apply(self.runner.system_mut(), sample, now, true).await
+    pub async fn set_clock(&mut self, sample: &Sample, now: u64) -> Result<u64, SysError> {
+        crate::sntp::apply(self.runner.system_mut(), sample, now).await
     }
 
     /// De kern luidde de stop-bel (een stop van het slot, of een herstart
@@ -585,7 +595,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     /// alleen in een leader zonder jobs. Zo overschrijft een zaadje nooit wat
     /// een operator of een vorige bewoner neerzette (Go: `agentloop`,
     /// `cleanBoot && len(l.GetJobs()) == 0`).
-    pub async fn seed_init_jobs(&mut self, jobs: Vec<Job>, now: Nanos) -> Result<usize, String> {
+    pub async fn seed_init_jobs(&mut self, jobs: Vec<Job>, now: Nanos) -> Result<usize, Fatal> {
         if !self.leader.jobs().is_empty() {
             return Ok(0);
         }
@@ -599,13 +609,16 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         };
         self.leader
             .seed_init_jobs(jobs, &mut net)
-            .map_err(|e| format!("init jobs: {e}"))?;
+            .map_err(|e| Fatal {
+                code: EXIT_INTERNAL,
+                why: format!("init jobs: {e}"),
+            })?;
         self.lines.push(format!(
             "hop: clean boot, seeded {} init job(s): {} HOP_INIT_SEEDED",
             names.len(),
             names.join(",")
         ));
-        self.drain(now).await;
+        self.drain(now).await?;
         Ok(names.len())
     }
 
@@ -650,23 +663,16 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         }
     }
 
-    /// Behandelt één verzoek op `port` en voert daarna de acties van de agent uit.
-    ///
-    /// Een verzoek voor een andere node (een doorgifte, zie
-    /// [`Node::handle_routed`]) kan hier niet: dat wordt een luide 502.
-    pub async fn handle(&mut self, port: Port, req: &Request, now: Nanos) -> Reply
-    where
-        S: crate::flip::KernFlip + crate::restart::KernRestart,
-    {
-        match self.handle_routed(port, req, now).await {
-            Routed::Reply(r) => r,
-            Routed::Forward(f) => Reply::Plain(refuse_forward(&f)),
-        }
-    }
-
     /// Behandelt één verzoek op `port`: een antwoord, of een doorgifte naar
     /// een andere node die de verbindingstaak uitvoert (`forward::serve`).
-    pub async fn handle_routed(&mut self, port: Port, req: &Request, now: Nanos) -> Routed
+    /// Daarna de acties van de agent; een kern die daarin niet antwoordt, is
+    /// [`Fatal`].
+    pub async fn handle_routed(
+        &mut self,
+        port: Port,
+        req: &Request,
+        now: Nanos,
+    ) -> Result<Routed, Fatal>
     where
         S: crate::flip::KernFlip + crate::restart::KernRestart,
     {
@@ -721,10 +727,10 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             // van de verbindingstaak (`forward::execute`).
             api::cors(req, reply.head_mut());
         }
-        self.drain(now).await;
+        self.drain(now).await?;
         self.collect_events();
         self.after_cluster(now);
-        routed
+        Ok(routed)
     }
 
     /// FLIP: haal de bundel en vraag de kern de warme flip (crate::flip).
@@ -979,10 +985,11 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     }
 
     /// Laat de tijd verstrijken: heartbeat en tik van de leader, tik van de agent.
-    pub async fn tick(&mut self, now: Nanos) {
+    /// Een kern die in een van de calls niet antwoordt, is [`Fatal`].
+    pub async fn tick(&mut self, now: Nanos) -> Result<(), Fatal> {
         // De eigen agent is altijd levend zolang deze taak draait; zonder
         // heartbeat zou de eigen leader hem na 30 s dood verklaren.
-        self.measure_system(now).await;
+        self.measure_system(now).await?;
         let leads = self.leads();
         if leads {
             let telemetry = self.telemetry();
@@ -1004,48 +1011,50 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             }
         }
         let actions = self.agent.tick(now);
-        self.run_actions(now, actions).await;
-        self.drain(now).await;
+        self.run_actions(now, actions).await?;
+        self.drain(now).await?;
         self.cluster_tick(now);
         self.collect_events();
+        Ok(())
     }
 
     /// Voert acties uit tot de agent niets meer vraagt (begrensd).
-    async fn drain(&mut self, now: Nanos) {
+    async fn drain(&mut self, now: Nanos) -> Result<(), Fatal> {
         for _ in 0..ACTION_ROUNDS {
             let actions = self.agent.take_actions();
             if actions.is_empty() {
-                return;
+                break;
             }
-            self.run_actions(now, actions).await;
+            self.run_actions(now, actions).await?;
         }
+        Ok(())
     }
 
-    /// Voert de acties uit, in volgorde; elke kern-call is een `.await`.
-    async fn run_actions(&mut self, now: Nanos, actions: Vec<Action>) {
+    /// Voert de acties uit, in volgorde; elke kern-call is een `.await`. Een
+    /// kern die niet antwoordt (een stop die hij niet bevestigt, een stand
+    /// die hij niet geeft), is [`Fatal`] en stopt de rij (besluit H1).
+    async fn run_actions(&mut self, now: Nanos, actions: Vec<Action>) -> Result<(), Fatal> {
         let ms = now / MILLISECOND;
         for a in actions {
             match a {
                 Action::Start { task_id, job } => self.start(now, &task_id, &job).await,
                 Action::Stop { task_id, pid, .. } => {
                     let pid = u32::try_from(pid).unwrap_or(0);
-                    if let Err(e) = self.runner.stop(ms, &TaskRef { id: &task_id, pid }).await {
-                        self.lines.push(format!("hop: stop {task_id}: {e} HOP_STOP_FAILED"));
-                    }
+                    self.runner
+                        .stop(ms, &TaskRef { id: &task_id, pid })
+                        .await
+                        .map_err(|e| kern(format_args!("STOP_SLOT of task {task_id}"), e))?;
                 }
                 Action::Poll { task_id, pid, .. } => {
                     let pid = u32::try_from(pid).unwrap_or(0);
                     let st = match self.runner.status(ms, &TaskRef { id: &task_id, pid }).await {
                         Ok(RunState::Running) => Status::Running,
                         Ok(RunState::Failed) => Status::Failed,
-                        // De kern gaf de stand niet (een warme flip onderweg):
-                        // geen meting, de volgende poll vraagt opnieuw. Tot
-                        // besluit H1 er is (de kern-kant van agent A).
-                        Err(_) => continue,
+                        Err(e) => return Err(kern(format_args!("SLOT_STATUS of task {task_id}"), e)),
                     };
                     self.agent.on_status(now, &task_id, st);
                     if st == Status::Running {
-                        self.record_usage(&task_id, pid).await;
+                        self.record_usage(&task_id, pid).await?;
                     }
                 }
                 Action::Probe { .. } => self.once(
@@ -1067,6 +1076,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
                 Action::Notify { job, event } => self.notify(now, &job, event),
             }
         }
+        Ok(())
     }
 
     /// Een taakgebeurtenis naar de eigen leader, zoals `POST /v1/notify`.
@@ -1230,31 +1240,34 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     ///
     /// Een stap van een download die de node niet meer wil (een ander
     /// nummer), telt niet. Faalt een stap, dan is de start klaar; de
-    /// downloadtaak ziet dat aan [`Node::wanted`] en stopt.
-    pub async fn on_piece(&mut self, seq: u64, piece: Piece, now: Nanos) {
+    /// downloadtaak ziet dat aan [`Node::wanted`] en stopt. Een kern die op
+    /// een stap niet antwoordt, is [`Fatal`], geen start die faalde.
+    pub async fn on_piece(&mut self, seq: u64, piece: Piece, now: Nanos) -> Result<(), Fatal> {
         let Some(load) = self.loads.front().filter(|l| l.sent && l.seq == seq) else {
-            return;
+            return Ok(());
         };
         let ms = now / MILLISECOND;
         let task = load.task_id.clone();
         let placed = load.placed;
         let outcome = match piece {
             Piece::Begin(size) => match self.runner.image_begin(ms, &task, size).await {
-                Ok(()) => return,
+                Ok(()) => return Ok(()),
+                Err(e) if unanswered(&e) => return Err(kern("START_SLOT", e)),
                 Err(e) => Err((start_error(&e), format!("{e}"))),
             },
             Piece::Bytes(bytes) => match self.runner.image_chunk(ms, &task, &bytes).await {
-                Ok(Started::AwaitImage) => return,
+                Ok(Started::AwaitImage) => return Ok(()),
                 Ok(Started::Running { pid }) => {
                     if let Some(l) = self.loads.front_mut() {
                         l.placed = Some(pid);
                     }
-                    return;
+                    return Ok(());
                 }
                 Ok(Started::Aborted) => Err((
                     StartError::Failed,
                     String::from("task stopped during its start"),
                 )),
+                Err(e) if unanswered(&e) => return Err(kern("STREAM_IMAGE", e)),
                 Err(e) => Err((start_error(&e), format!("{e}"))),
             },
             Piece::End(Ok(())) => placed.ok_or((
@@ -1263,14 +1276,14 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             )),
             Piece::End(Err(why)) => Err((StartError::Failed, why)),
         };
-        self.finish_load(now, outcome).await;
+        self.finish_load(now, outcome).await
     }
 
     /// Sluit de lopende download af: de kooi terug als hij faalde, de afloop
     /// naar de agent, en wat de agent daarna wil.
-    async fn finish_load(&mut self, now: Nanos, outcome: Outcome) {
+    async fn finish_load(&mut self, now: Nanos, outcome: Outcome) -> Result<(), Fatal> {
         let Some(load) = self.loads.pop_front() else {
-            return;
+            return Ok(());
         };
         if outcome.is_err() {
             // Een start die faalde, laat geen gereserveerde kooi staan.
@@ -1278,12 +1291,16 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
                 id: &load.task_id,
                 pid: 0,
             };
-            let _ = self.runner.stop(now / MILLISECOND, &id).await;
+            self.runner
+                .stop(now / MILLISECOND, &id)
+                .await
+                .map_err(|e| kern(format_args!("STOP_SLOT of task {}", load.task_id), e))?;
         }
         self.report_start(now, &load.task_id, &load.job, &load.ports, outcome);
-        self.drain(now).await;
+        self.drain(now).await?;
         self.collect_events();
         self.after_cluster(now);
+        Ok(())
     }
 
     /// Haalt elke download die klaarligt meteen op, zonder downloadtaak.
@@ -1312,10 +1329,29 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             let r = self.images.fetch(&order.artifact, &mut pieces).await;
             pieces.0.push(Piece::End(r));
             for p in pieces.0 {
-                self.on_piece(order.seq, p, now).await;
+                self.on_piece(order.seq, p, now).await.unwrap();
             }
         }
     }
+}
+
+/// Een kern die op `what` niet antwoordde (of weigerde wat hij nooit
+/// weigert): [`Fatal`] met `EXIT_KERNEL` (besluit H1).
+fn kern(what: impl core::fmt::Display, e: impl core::fmt::Display) -> Fatal {
+    Fatal {
+        code: EXIT_KERNEL,
+        why: format!("{what}: {e}"),
+    }
+}
+
+/// Of een fout van de runner een kern is die niet antwoordde (geen
+/// weigering, geen volle node): dan is het geen start die faalde, maar een
+/// kapotte node.
+fn unanswered(e: &runner::Error) -> bool {
+    matches!(
+        e,
+        runner::Error::System(SysError::Unreachable(_) | SysError::NotConfirmed)
+    )
 }
 
 /// Leest de staat die de vorige Hop bij de kern neerlegde (`STATE_GET`);

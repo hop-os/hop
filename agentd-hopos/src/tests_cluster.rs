@@ -721,7 +721,7 @@ fn signed_body(method: Method, target: &str, body: &str) -> Request {
 }
 
 fn routed(n: &mut TestNode, port: Port, req: &Request, now: u64) -> Routed {
-    block_on(n.handle_routed(port, req, now))
+    block_on(n.handle_routed(port, req, now)).unwrap()
 }
 
 fn status(r: &Routed) -> u16 {
@@ -853,7 +853,7 @@ fn a_free_lock_makes_the_node_leader_with_the_committed_state() {
         &signed_body(Method::Post, "/v1/heartbeat", hb),
         T0 + 21 * SECOND,
     );
-    block_on(n.tick(T0 + 21 * SECOND));
+    block_on(n.tick(T0 + 21 * SECOND)).unwrap();
     let calls = drain(q.dispatch);
     assert!(
         calls
@@ -869,7 +869,7 @@ fn a_free_lock_makes_the_node_leader_with_the_committed_state() {
     );
     // De snapshot gaat naar de staat-taak (na het debounce-venster van de
     // leader: de eerste tik na een mutatie start het, de volgende schrijft).
-    block_on(n.tick(T0 + 23 * SECOND));
+    block_on(n.tick(T0 + 23 * SECOND)).unwrap();
     let saves = drain(q.state);
     let Some(StateOp::Save(snap)) = saves.last() else {
         panic!("geen snapshot: {saves:?}");
@@ -960,7 +960,7 @@ fn a_held_lock_makes_the_node_follow_and_register_over_the_lan() {
     assert!(drain(q.state).is_empty(), "geen leider zonder lease");
 
     // De eerste tik van de verkiezing vraagt wie leidt.
-    block_on(n.tick(T0 + 11 * SECOND));
+    block_on(n.tick(T0 + 11 * SECOND)).unwrap();
     assert_eq!(drain(q.lease), vec![LeaseOp::Read]);
     n.on_mail(
         Mail::Lease(LeaseReply::Read {
@@ -970,7 +970,7 @@ fn a_held_lock_makes_the_node_follow_and_register_over_the_lan() {
         T0 + 11 * SECOND,
     );
     // De volgende tik registreert bij die leader, over de link-taak.
-    block_on(n.tick(T0 + 22 * SECOND));
+    block_on(n.tick(T0 + 22 * SECOND)).unwrap();
     let jobs = drain(q.link);
     let [LinkJob::Election { req, url, body }] = &jobs[..] else {
         panic!("geen register: {jobs:?}");
@@ -1004,7 +1004,7 @@ fn a_held_lock_makes_the_node_follow_and_register_over_the_lan() {
 
     // De volgende tik is een heartbeat; een leader die ons vergat (404)
     // krijgt een nieuwe registratie.
-    block_on(n.tick(T0 + 33 * SECOND));
+    block_on(n.tick(T0 + 33 * SECOND)).unwrap();
     let jobs = drain(q.link);
     let [LinkJob::Election { req, url, .. }] = &jobs[..] else {
         panic!("geen heartbeat: {jobs:?}");
@@ -1018,7 +1018,7 @@ fn a_held_lock_makes_the_node_follow_and_register_over_the_lan() {
         },
         T0 + 33 * SECOND,
     );
-    block_on(n.tick(T0 + 44 * SECOND));
+    block_on(n.tick(T0 + 44 * SECOND)).unwrap();
     assert!(matches!(
         &drain(q.link)[..],
         [LinkJob::Election {
@@ -1074,7 +1074,7 @@ fn the_heartbeat_to_the_leader_carries_the_kernel_and_hop() {
     n.on_mail(Mail::Lease(LeaseReply::Claimed(false)), T0);
     // Elke tik meet (het monitor-interval is 5 s); de eerste stand geeft
     // geheugen maar nog geen cpu.
-    block_on(n.tick(T0 + 11 * SECOND));
+    block_on(n.tick(T0 + 11 * SECOND)).unwrap();
     drain(q.lease);
     n.on_mail(
         Mail::Lease(LeaseReply::Read {
@@ -1084,7 +1084,7 @@ fn the_heartbeat_to_the_leader_carries_the_kernel_and_hop() {
         T0 + 11 * SECOND,
     );
     system_slots(&k, 105);
-    block_on(n.tick(T0 + 22 * SECOND));
+    block_on(n.tick(T0 + 22 * SECOND)).unwrap();
     let [LinkJob::Election { req, .. }] = &drain(q.link)[..] else {
         panic!("geen register");
     };
@@ -1096,7 +1096,7 @@ fn the_heartbeat_to_the_leader_carries_the_kernel_and_hop() {
         T0 + 22 * SECOND,
     );
     system_slots(&k, 110);
-    block_on(n.tick(T0 + 33 * SECOND));
+    block_on(n.tick(T0 + 33 * SECOND)).unwrap();
     let jobs = drain(q.link);
     let [LinkJob::Election { url, body, .. }] = &jobs[..] else {
         panic!("geen heartbeat: {jobs:?}");
@@ -1130,7 +1130,7 @@ fn a_kernel_without_slot_0_leaves_the_kernel_out() {
     n.on_mail(Mail::Lease(LeaseReply::Claimed(true)), T0);
     n.on_mail(Mail::Loaded(Ok(None)), T0);
     drain(q.state);
-    block_on(n.tick(T0 + SECOND));
+    block_on(n.tick(T0 + SECOND)).unwrap();
     let agents = signed_body(Method::Get, "/v1/agents", "");
     let Routed::Reply(hop_http::Reply::Plain(r)) =
         routed(&mut n, Port::Leader, &agents, T0 + SECOND)
@@ -1152,9 +1152,9 @@ fn the_leader_shows_the_kernel_and_hop_of_every_agent() {
     n.on_mail(Mail::Loaded(Ok(None)), T0);
     drain(q.state);
     // Twee standen, 5 s uit elkaar: de eigen heartbeat draagt de cpu.
-    block_on(n.tick(T0 + SECOND));
+    block_on(n.tick(T0 + SECOND)).unwrap();
     system_slots(&k, 105);
-    block_on(n.tick(T0 + 6 * SECOND));
+    block_on(n.tick(T0 + 6 * SECOND)).unwrap();
 
     // n2 is een nieuwe Hop, n3 een oude zonder de velden.
     for (id, ip) in [("n2", "10.0.0.6"), ("n3", "10.0.0.7")] {
@@ -1311,13 +1311,13 @@ fn a_displaced_leader_steps_down_and_forgets_its_calls() {
         })
         .unwrap();
     // De renew zegt: iemand anders houdt de lease. De volgende tik treedt af.
-    block_on(n.tick(T0 + 11 * SECOND));
+    block_on(n.tick(T0 + 11 * SECOND)).unwrap();
     n.on_mail(
         Mail::Lease(LeaseReply::Renewed(false, true)),
         T0 + 11 * SECOND,
     );
     assert!(said(&mut n, "HOP_LEASE_DISPLACED"));
-    block_on(n.tick(T0 + 22 * SECOND));
+    block_on(n.tick(T0 + 22 * SECOND)).unwrap();
     assert!(said(&mut n, "HOP_LEADER_STOPPED"));
     assert!(
         drain(q.dispatch).is_empty(),
@@ -1510,7 +1510,7 @@ fn leader_after_restart(adopt: bool) -> (TestNode, Queues, FakeKern) {
     // De settle is één agent-timeout (20 s in deze tests); de leader tikt
     // om de 10 s.
     for s in [11, 21, 31, 41] {
-        block_on(n.tick(T0 + s * SECOND));
+        block_on(n.tick(T0 + s * SECOND)).unwrap();
     }
     (n, q, k)
 }
@@ -1550,7 +1550,7 @@ fn a_restarted_follower_reports_the_same_tasks_to_the_leader() {
     n.cluster_boot(T0);
     drain(q.lease);
     n.on_mail(Mail::Lease(LeaseReply::Claimed(false)), T0);
-    block_on(n.tick(T0 + 11 * SECOND));
+    block_on(n.tick(T0 + 11 * SECOND)).unwrap();
     assert_eq!(drain(q.lease), vec![LeaseOp::Read]);
     n.on_mail(
         Mail::Lease(LeaseReply::Read {
@@ -1561,7 +1561,7 @@ fn a_restarted_follower_reports_the_same_tasks_to_the_leader() {
     );
     // De eerste registratie bij de leader draagt de overgenomen taak al:
     // de leader telt hem als geplaatst en plaatst hem niet nog eens.
-    block_on(n.tick(T0 + 22 * SECOND));
+    block_on(n.tick(T0 + 22 * SECOND)).unwrap();
     let jobs = drain(q.link);
     let [LinkJob::Election { url, body, .. }] = &jobs[..] else {
         panic!("geen register: {jobs:?}");

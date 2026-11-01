@@ -240,24 +240,23 @@ impl<S: SystemApi> HopRunner<S> {
     /// core waarop het slot draait.
     ///
     /// `None` voor een veld dat nog niet gemeten is (de app start nog); 0
-    /// cores is onbekend.
+    /// cores is onbekend. Een kern die de stand niet geeft, is een fout en
+    /// geen "niets gemeten" (besluit H1).
     pub async fn usage(
         &mut self,
         task: &TaskRef<'_>,
-    ) -> (Option<u8>, Option<u64>, u64, Option<u64>) {
+    ) -> core::result::Result<(Option<u8>, Option<u64>, u64, Option<u64>), SysError> {
         if task.pid == 0 {
-            return (None, None, 0, None);
+            return Ok((None, None, 0, None));
         }
         let slot = self.slot_of(task.id).unwrap_or(Slot(task.pid));
-        let Ok(s) = self.sys.slot_status(slot).await else {
-            return (None, None, 0, None);
-        };
-        (
+        let s = self.sys.slot_status(slot).await?;
+        Ok((
             s.cpu_pct,
             (s.mem_sys != 0).then_some(s.mem_sys),
             s.cores,
             s.core,
-        )
+        ))
     }
 
     /// Haalt de console van de kern leeg (`NEXT_LOG`) en zet elke regel in
@@ -394,18 +393,17 @@ impl<S: SystemApi> HopRunner<S> {
         }
     }
 
-    /// Zet de reden van een einde één keer in de log van de taak.
-    async fn log_end_once(&mut self, task_id: &str, slot: Slot) {
+    /// Zet de reden van een einde één keer in de log van de taak; een kern
+    /// die de stand niet geeft, is een fout.
+    async fn log_end_once(&mut self, task_id: &str, slot: Slot) -> Result {
         let Some(cage) = self.cages.get_mut(task_id) else {
-            return;
+            return Ok(());
         };
         if cage.fault_logged {
-            return;
+            return Ok(());
         }
         cage.fault_logged = true;
-        let Ok(s) = self.sys.slot_status(slot).await else {
-            return;
-        };
+        let s = self.sys.slot_status(slot).await.map_err(Error::System)?;
         let line = if s.fault_vec != 0 {
             format!(
                 "hop: task failed: stage-2 fault on slot {} (vec {}, ESR {:#x}, FAR {:#x})",
@@ -425,9 +423,10 @@ impl<S: SystemApi> HopRunner<S> {
                 s.exit_code, slot.0
             )
         } else {
-            return;
+            return Ok(());
         };
         self.log(task_id, &line);
+        Ok(())
     }
 }
 
@@ -548,8 +547,12 @@ impl<S: SystemApi> Runner for HopRunner<S> {
                 // Welke kooi kreeg deze taak? De node weet het, en vooraan in
                 // de eigen log komt het heel aan, waar een operator al kijkt
                 // (`hop logs`).
-                let cage = self.sys.slot_status(slot).await.map(|s| s.cage);
-                let cage = cage.unwrap_or_default();
+                let cage = self
+                    .sys
+                    .slot_status(slot)
+                    .await
+                    .map_err(Error::System)?
+                    .cage;
                 if !cage.is_empty() {
                     self.log(task_id, &cage);
                 }
@@ -601,7 +604,7 @@ impl<S: SystemApi> Runner for HopRunner<S> {
             return Ok(RunState::Running);
         }
         if s.app != SlotApp::Exited || s.exit_code != 0 || s.fault_vec != 0 {
-            self.log_end_once(task.id, slot).await;
+            self.log_end_once(task.id, slot).await?;
         }
         Ok(RunState::Failed)
     }

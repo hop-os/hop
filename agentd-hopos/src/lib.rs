@@ -71,8 +71,9 @@ pub use handoff::Handoff;
 pub use hub::{Answer, Hub, Question};
 pub use node::{Cluster, ClusterParts, Images, Kept, Node, Port, Sink, init_jobs, read_state};
 
-/// Een fout waarmee de start niet verder kan: de binary stopt Hop ermee
-/// (`fail` in main.rs, `HOP_FATAL`).
+/// Een fout waarmee Hop niet verder kan, bij de start of daarna (een kern
+/// die niet antwoordt, besluit H1): de binary stopt Hop ermee (`fail` in
+/// main.rs, `HOP_FATAL`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fatal {
     /// De exitcode per soort (`abi::hopabi::EXIT_*`, besluit H9).

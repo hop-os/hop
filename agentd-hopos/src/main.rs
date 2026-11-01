@@ -53,11 +53,12 @@
 //! `HOP_CLOCK_SYNCED`, `HOP_INIT_SEEDED`, `HOP_ADOPTED n=N`,
 //! `HOP_STRAY_STOPPED slot=N`, `HOP_RESTART`, `HOP_RESTART_ACCEPTED`,
 //! `HOP_RESTART_LEAVING why=replied|grace|bell`, `HOP_STOPPING`,
-//! `HOP_FATAL step=<stap>` (een start die niet lukt: Hop stopt met een
-//! exitcode per soort, `EXIT_KERNEL`, `EXIT_CONFIG` of `EXIT_INTERNAL`, en de
+//! `HOP_FATAL step=<stap>` (een start die niet lukt, of daarna een kern die
+//! niet antwoordt: Hop stopt met een exitcode per soort uit abi,
+//! `EXIT_KERNEL`, `EXIT_CONFIG`, `EXIT_INTERNAL` of `EXIT_CLOCK`, en de
 //! watchdog reset de node; geen herhaallus), en de weigeringen en
 //! degradaties `HOP_RESTART_FAIL`, `HOP_KERNEL_STATE_FAIL`, `HOP_ADOPT_SKIPPED`, `HOPOS_API_INSECURE`,
-//! `HOP_SNTP_FAIL`, `HOP_CLOCK_FAIL`, `HOP_TLS_ENTROPY_WEAK`, `HOP_TLS_ENTROPY_HW`,
+//! `HOP_SNTP_FAIL`, `HOP_TLS_ENTROPY_WEAK`, `HOP_TLS_ENTROPY_HW`,
 //! `HOP_INIT_FAIL`, `HOP_JOB_REFUSED` (een job die de leader-API weigerde,
 //! zoals een vaste poort die zou rollen) en `HOP_DOWNLOAD_QUEUE_FULL`. In
 //! een cluster ook `HOP_CLUSTER`, `HOP_CLUSTER_JOIN`,
@@ -100,7 +101,7 @@ use agentd_hopos::mail::{DispatchQueue, Inbox, LeaseQueue, LinkQueue, Mail, Nap,
 use agentd_hopos::restart;
 use agentd_hopos::sntp::{self, NtpLink, PACKET, Sample};
 use agentd_hopos::{
-    Answer, BootConfig, ClusterParts, Connect, Handoff, HttpImages, Hub, Images, Node, Port,
+    Answer, BootConfig, ClusterParts, Connect, Fatal, Handoff, HttpImages, Hub, Images, Node, Port,
     Question, Resolve,
 };
 use applib::appnet::{self, Endpoint, Net, NetError, SystemClient, TcpListener, TcpStream};
@@ -196,6 +197,17 @@ async fn fail(app: &App, code: u64, step: &str, why: impl core::fmt::Display) ->
     // `shutdown` keert nooit terug (`App::exit` parkeert de core); dat staat
     // alleen niet in zijn type.
     match core::future::pending::<core::convert::Infallible>().await {}
+}
+
+/// Een [`Fatal`] van de node bij stap `step`: eerst zijn regels op het log,
+/// dan [`fail`].
+async fn fatal<S, I>(app: &App, node: &mut Node<S, I>, step: &str, f: Fatal) -> !
+where
+    S: runner::SystemApi + agent::Store,
+    I: Images,
+{
+    flush(node);
+    fail(app, f.code, step, f.why).await
 }
 
 /// De rij met opdrachten naar de downloadtaak.
@@ -405,21 +417,17 @@ async fn clock_task(
 
 /// Wat een `SET_CLOCK` deed ([`sntp::apply`]): bij de start als stap in de
 /// reeks, daarna voor de metingen van de kloktaak. Een kern die `SET_CLOCK`
-/// weigert, of bij de start niet antwoordt, is een kapotte node: [`fail`].
-async fn clock_set(app: &App, step: sntp::ClockStep, sample: &Sample, server: &str) {
-    match step {
-        sntp::ClockStep::Synced(unix_ns) => log!(
+/// weigert of er niet op antwoordt, is een kapotte node: [`fail`] (besluit
+/// H1, ook na de start).
+async fn clock_set(app: &App, set: Result<u64, runner::SysError>, sample: &Sample, server: &str) {
+    match set {
+        Ok(unix_ns) => log!(
             "hop: clock set from {server} (stratum {}, delay {} us) to {} s HOP_CLOCK_SYNCED",
             sample.stratum,
             sample.delay_ns / 1000,
             unix_ns / 1_000_000_000
         ),
-        sntp::ClockStep::Later(e) => log!(
-            "hop: SET_CLOCK: {e}; the clock stays as it was until the next sync HOP_CLOCK_FAIL"
-        ),
-        sntp::ClockStep::Fatal(e) => {
-            fail(app, EXIT_KERNEL, "clock", format_args!("SET_CLOCK: {e}")).await
-        }
+        Err(e) => fail(app, EXIT_KERNEL, "clock", format_args!("SET_CLOCK: {e}")).await,
     }
 }
 
@@ -479,13 +487,11 @@ async fn store_task(
     }
     let mut svc = Service::new(bucket, &cluster);
     let mut sys = KernSys::new(net.system_client(), 1);
-    let mut refused: u32 = 0;
     loop {
         match svc.serve_one(&mut sys).await {
             // Geen regel hier: elke regel op de console wekt deze wacht.
             Ok(Served::Logs) => {
                 let _ = LOG_NEWS.try_send(());
-                refused = 0;
             }
             // Een pull van iets dat er niet is, is een vraag, geen fout.
             Ok(Served::Done(o))
@@ -508,16 +514,11 @@ async fn store_task(
                 o.task.key,
                 o.task.slot.0
             ),
-            Ok(_) => refused = 0,
-            Err(e) => {
-                // Een kern zonder verbinding: luid, de eerste paar keer, dan
-                // eens per minuut.
-                refused = refused.saturating_add(1);
-                if refused <= 3 || refused.is_multiple_of(60) {
-                    log!("hop: NEXT_STORE failed ({refused}x): {e} HOP_STORE_KERNEL");
-                }
-                exec.after(Duration::from_secs(1)).await;
-            }
+            Ok(_) => {}
+            // Een kern die op de lange wacht niet antwoordt, is een kapotte
+            // node (besluit H1), geen lus die het over een seconde opnieuw
+            // vraagt.
+            Err(e) => fail(app, EXIT_KERNEL, "store", format_args!("NEXT_STORE: {e}")).await,
         }
     }
 }
@@ -975,8 +976,8 @@ async fn resident(app: &'static App) {
     } else {
         match measure(net, exec, &ntp_host, ntp_port, &mut 0).await {
             Ok(sample) => {
-                let step = sntp::apply(&mut sys, &sample, exec.now(), false).await;
-                clock_set(app, step, &sample, &ntp_host).await;
+                let set = sntp::apply(&mut sys, &sample, exec.now()).await;
+                clock_set(app, set, &sample, &ntp_host).await;
             }
             Err(e) => {
                 let why = format!("SNTP {ntp_host}:{ntp_port}: {e}; no time, no node");
@@ -1061,14 +1062,10 @@ async fn resident(app: &'static App) {
     // daarna nog draait, is van niemand.
     let kept = match node.restore(state, now(app)).await {
         Ok(k) => k,
-        Err(f) => {
-            flush(&mut node);
-            fail(app, f.code, "restore", f.why).await
-        }
+        Err(f) => fatal(app, &mut node, "restore", f).await,
     };
     if let Err(f) = node.sweep_strays().await {
-        flush(&mut node);
-        fail(app, f.code, "sweep", f.why).await;
+        fatal(app, &mut node, "sweep", f).await;
     }
     flush(&mut node);
     let clock = clock_task(net, exec, ntp_host.clone(), ntp_port, NTP_EVERY);
@@ -1091,8 +1088,8 @@ async fn resident(app: &'static App) {
         && kept.is_clean()
         && let Some(jobs) = specs
     {
-        if let Err(e) = node.seed_init_jobs(jobs, now(app)).await {
-            fail(app, EXIT_INTERNAL, "init", e).await;
+        if let Err(f) = node.seed_init_jobs(jobs, now(app)).await {
+            fatal(app, &mut node, "init", f).await;
         }
         flush(&mut node);
     }
@@ -1165,8 +1162,9 @@ async fn resident(app: &'static App) {
             match q {
                 Question::Http(port, req) => {
                     let answer = match node.handle_routed(port, &req, now(app)).await {
-                        Routed::Reply(r) => Answer::Reply(r),
-                        Routed::Forward(f) => Answer::Forward(f),
+                        Ok(Routed::Reply(r)) => Answer::Reply(r),
+                        Ok(Routed::Forward(f)) => Answer::Forward(f),
+                        Err(f) => fatal(app, &mut node, "api", f).await,
                     };
                     let leaving = node.take_leaving();
                     if leaving {
@@ -1191,8 +1189,8 @@ async fn resident(app: &'static App) {
         }
         // Een meting van de kloktaak: SET_CLOCK over de hoofdverbinding.
         if let Some(sample) = CLOCK.try_recv() {
-            let step = node.set_clock(&sample, exec.now()).await;
-            clock_set(app, step, &sample, &ntp_host).await;
+            let set = node.set_clock(&sample, exec.now()).await;
+            clock_set(app, set, &sample, &ntp_host).await;
         }
         // De antwoorden van de taken van de cluster (lease, link, staat,
         // dispatch); standalone blijft de inbox leeg.
@@ -1202,7 +1200,9 @@ async fn resident(app: &'static App) {
         }
         let t = now(app);
         if t >= next_tick {
-            node.tick(t).await;
+            if let Err(f) = node.tick(t).await {
+                fatal(app, &mut node, "tick", f).await;
+            }
             next_tick = t.saturating_add(tick_ns);
             flush(&mut node);
         }
@@ -1210,11 +1210,14 @@ async fn resident(app: &'static App) {
         // Hoogstens één brok per ronde: daarna eerst weer de bus (bovenaan).
         match wake(hub, &INBOX, &mut pieces, exec.after(wait), app.stopped()).await {
             Woke::Mail(m) => node.on_mail(m, now(app)),
-            Woke::Piece(seq, p) => node.on_piece(seq, p, now(app)).await,
+            Woke::Piece(seq, p) => {
+                if let Err(f) = node.on_piece(seq, p, now(app)).await {
+                    fatal(app, &mut node, "start", f).await;
+                }
+            }
             Woke::Logs => {
                 if let Err(f) = node.pump_logs(now(app)).await {
-                    flush(&mut node);
-                    fail(app, f.code, "logs", f.why).await;
+                    fatal(app, &mut node, "logs", f).await;
                 }
             }
             Woke::Look => {}

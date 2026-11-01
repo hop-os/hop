@@ -27,40 +27,23 @@ use core::future::Future;
 
 use crate::fetch::Resolve;
 
-/// Wat de eigenaar met één meting doet ([`apply`]).
-#[derive(Debug, PartialEq, Eq)]
-pub enum ClockStep {
-    /// De klok staat: `SET_CLOCK` lukte met deze Unix-nanoseconden.
-    Synced(u64),
-    /// De kern antwoordde na de start niet op `SET_CLOCK`: luid, en bij de
-    /// volgende meting opnieuw.
-    Later(runner::SysError),
-    /// Hard: de kern weigerde `SET_CLOCK` (dat mag hij nooit), of hij
-    /// antwoordde bij de start niet. Hop stopt; de watchdog reset de node.
-    Fatal(runner::SysError),
-}
-
-/// Zet de klok van de kern uit één meting, op monotone tijd `now`.
+/// Zet de klok van de kern uit één meting, op monotone tijd `now`; geeft
+/// de gezette Unix-nanoseconden.
 ///
 /// Geen herhaallus (Derek, 24-10): de kern plaatst een nieuwe Hop pas als
 /// de oude weg is, en sinds HopOS v3.0.19 krijgt die vanaf zijn eerste
-/// instructie zijn verbindingen. Een `SET_CLOCK` die bij de start niet lukt,
-/// is dus een kapotte node, geen pech: hard falen. `started` zegt of de
-/// start voorbij is; dan is een kern die even niet antwoordt (een flip) een
-/// latere fout en geen reden om te stoppen. Een echte weigering is altijd
-/// hard.
+/// instructie zijn verbindingen. Een fout (een kern die niet antwoordt, of
+/// weigert wat hij nooit weigert) is een kapotte node, bij de start en
+/// daarna (besluit H1: na een warme flip staat de system-API er vóór Hop
+/// een beurt krijgt): de aanroeper stopt Hop.
 pub async fn apply<S: runner::SystemApi>(
     sys: &mut S,
     sample: &Sample,
     now: u64,
-    started: bool,
-) -> ClockStep {
+) -> Result<u64, runner::SysError> {
     let unix_ns = sample.unix_at(now);
-    match sys.set_clock(unix_ns).await {
-        Ok(()) => ClockStep::Synced(unix_ns),
-        Err(e @ runner::SysError::Unreachable(_)) if started => ClockStep::Later(e),
-        Err(e) => ClockStep::Fatal(e),
-    }
+    sys.set_clock(unix_ns).await?;
+    Ok(unix_ns)
 }
 
 /// De NTP-poort.
