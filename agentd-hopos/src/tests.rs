@@ -1891,14 +1891,8 @@ fn a_silent_kernel_at_the_restore_stops_hop_before_the_sweep() {
         !kept.is_clean(),
         "never an empty start, never the init jobs"
     );
-    let lines = again.take_lines();
-    assert!(
-        lines.iter().any(|l| l.contains("did not answer STATE_GET")
-            && l.ends_with("HOP_KERNEL_GONE step=restore")),
-        "{lines:?}"
-    );
-    // Niets gestopt en niets overgenomen: de binary stopt Hop hier (exit
-    // EXIT_KERNEL), de veger komt niet aan de beurt.
+    // Niets gestopt en niets overgenomen: de binary stopt Hop hier
+    // (`HOP_FATAL step=restore`, EXIT_KERNEL), de veger komt niet aan de beurt.
     assert_eq!(again.agent().tasks().count(), 0);
     assert!(k.0.borrow().slots[&1].placed, "web runs on");
     assert!(!k.0.borrow().ops.contains(&PrivOp::StopSlot.op()));

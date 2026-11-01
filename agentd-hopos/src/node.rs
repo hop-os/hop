@@ -498,12 +498,8 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
                 ));
                 return Kept::Unsupported;
             }
-            Err(e @ StoreError::Io) => {
-                self.lines.push(format!(
-                    "hop: the kernel did not answer STATE_GET ({e}); stopping, an empty start would stop every app HOP_KERNEL_GONE step=restore"
-                ));
-                return Kept::Unreachable;
-            }
+            // De binary stopt Hop hier (`HOP_FATAL step=restore`).
+            Err(StoreError::Io) => return Kept::Unreachable,
             Err(e) => {
                 self.lines.push(format!(
                     "hop: the kernel's state for Hop not read: {e}; starting empty HOP_KERNEL_STATE_FAIL"

@@ -39,7 +39,7 @@
 #                zijn regel via de HopOS-leader.
 #
 # Een HOPOS_PANIC, HOPOS_EXCEPTION, HOPOS_HOP_FAULT, HOPOS_HOP_EXIT,
-# HOPOS_HOP_FAIL, HOP_LOCK_BAD of HOP_SPAWN_FAIL is meteen rood. Rood
+# HOPOS_HOP_FAIL of HOP_FATAL is meteen rood. Rood
 # bewaart en toont de logs.
 #
 # De kern moet de sleutels van de cluster aan Hop doorgeven (`hop_env` in
@@ -122,7 +122,7 @@ wait_for() {
 	done
 }
 line() { tr -d '\r' <"$1" | grep -m1 -E "$2"; }
-RED="HOPOS_PANIC|HOPOS_EXCEPTION|HOPOS_HOP_FAULT|HOPOS_HOP_EXIT|HOPOS_HOP_FAIL|HOP_LOCK_BAD|HOP_SPAWN_FAIL"
+RED="HOPOS_PANIC|HOPOS_EXCEPTION|HOPOS_HOP_FAULT|HOPOS_HOP_EXIT|HOPOS_HOP_FAIL|HOP_FATAL"
 red() { [ -f "$TMP/qemu.log" ] && tr -d '\r' <"$TMP/qemu.log" | grep -q -E "$RED"; }
 # poll <seconden> <regex> <commando...>: tot de uitvoer van het commando de regex bevat.
 poll() {

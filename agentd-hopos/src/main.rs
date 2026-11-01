@@ -49,17 +49,17 @@
 //! `HOP_STRAY_STOPPED slot=N`, `HOP_RESTART`, `HOP_RESTART_ACCEPTED`,
 //! `HOP_RESTART_LEAVING why=replied|grace|bell`, `HOP_STOPPING`,
 //! `HOP_KERN_LOG_ON`, `HOP_KERN_LOG_NONE` (een kern zonder eigen log),
-//! `HOP_KERNEL_GONE step=restore|clock|init` (de kern antwoordde bij de
-//! start niet of weigerde SET_CLOCK: Hop stopt met exitcode `EXIT_KERNEL`
-//! en de watchdog reset de node; geen herhaallus), en de weigeringen en degradaties `HOP_RESTART_FAIL`,
-//! `HOP_KERNEL_STATE_NONE`, `HOP_KERNEL_STATE_FAIL`, `HOP_ADOPT_SKIPPED`,
-//! `HOPOS_API_NO_AUTH`, `HOPOS_API_INSECURE`, `HOP_NET_FAIL`,
+//! `HOP_FATAL step=<stap>` (een start die niet lukt: Hop stopt met een
+//! exitcode per soort, `EXIT_KERNEL`, `EXIT_CONFIG` of `EXIT_INTERN`, en de
+//! watchdog reset de node; geen herhaallus), en de weigeringen en
+//! degradaties `HOP_RESTART_FAIL`, `HOP_KERNEL_STATE_NONE`,
+//! `HOP_KERNEL_STATE_FAIL`, `HOP_ADOPT_SKIPPED`, `HOPOS_API_INSECURE`,
 //! `HOP_SNTP_FAIL`, `HOP_CLOCK_FAIL`, `HOP_TLS_ENTROPY_WEAK`, `HOP_TLS_ENTROPY_HW`,
 //! `HOP_INIT_FAIL`, `HOP_JOB_REFUSED` (een job die de leader-API weigerde,
 //! zoals een vaste poort die zou rollen) en `HOP_DOWNLOAD_QUEUE_FULL`. In
 //! een cluster ook `HOP_CLUSTER`, `HOP_CLUSTER_JOIN`,
 //! `HOP_LEADER_LOADING`, `HOP_STATE_LOADED`, `HOP_LEADER_STOPPED`, en de
-//! weigeringen `HOP_LOCK_BAD`, `HOP_CLUSTER_NO_CLOCK`, `HOP_LEASE_STORE`,
+//! weigeringen `HOP_CLUSTER_NO_CLOCK`, `HOP_LEASE_STORE`,
 //! `HOP_LINK_FAIL`, `HOP_RELAY_REFUSED`, `HOP_RELAY_FULL`,
 //! `HOP_STATE_SAVE_FAIL`.
 //!
@@ -95,8 +95,8 @@ use agentd_hopos::mail::{DispatchQueue, Inbox, LeaseQueue, LinkQueue, Mail, Nap,
 use agentd_hopos::restart;
 use agentd_hopos::sntp::{self, NtpLink, PACKET};
 use agentd_hopos::{
-    Answer, BootConfig, ClusterParts, Connect, EXIT_KERNEL, Handoff, HttpImages, Hub, Images, Kept,
-    Node, Port, Question, Resolve,
+    Answer, BootConfig, ClusterParts, Connect, EXIT_CONFIG, EXIT_INTERN, EXIT_KERNEL, Handoff,
+    HttpImages, Hub, Images, Kept, Node, Port, Question, Resolve,
 };
 use applib::appnet::{self, Endpoint, Net, NetError, SystemClient, TcpListener, TcpStream};
 use applib::rand::{JITTER_ROUNDS, Origin, Rng};
@@ -191,6 +191,21 @@ macro_rules! say {
         log!("{line}");
         let _ = HOP_LOG.try_send(line);
     }};
+}
+
+/// Stopt Hop hard: één regel met de reden en `HOP_FATAL step=<stap>`, het
+/// net-afscheid en de exit met `code` (een `EXIT_*` per soort).
+///
+/// De enige weg uit een start die niet lukt (besluit S1, 01-11): een falende
+/// Hop is een falende node. De kern laat hem liggen (`HOPOS_HOP_EXIT`) en de
+/// watchdog reset de node. Geen `return` (exit 0), geen `pending()` (een
+/// node die slaat maar niets doet), geen regel-en-door.
+async fn fail(app: &App, code: u64, step: &str, why: impl core::fmt::Display) -> ! {
+    say!("hop: {why}; stopping (exit {code}) HOP_FATAL step={step}");
+    app.shutdown(code).await;
+    // `shutdown` keert nooit terug (`App::exit` parkeert de core); dat staat
+    // alleen niet in zijn type.
+    match core::future::pending::<core::convert::Infallible>().await {}
 }
 
 /// De rij met opdrachten naar de downloadtaak.
@@ -392,11 +407,7 @@ async fn clock_task(
             sntp::ClockStep::Fatal(e) => {
                 // Een kern die SET_CLOCK weigert, of bij de start niet
                 // antwoordt, is een kapotte node: hard, de watchdog reset.
-                say!(
-                    "hop: SET_CLOCK failed at the start: {e}; stopping (exit {EXIT_KERNEL}) HOP_KERNEL_GONE step=clock"
-                );
-                app.shutdown(EXIT_KERNEL).await;
-                return;
+                fail(app, EXIT_KERNEL, "clock", format_args!("SET_CLOCK: {e}")).await
             }
             sntp::ClockStep::Sntp(e) => {
                 fails = fails.saturating_add(1);
@@ -675,8 +686,7 @@ async fn wake(
 /// laat Hop er drie toe (`MAX_HOP_CONNS`).
 ///
 /// Een kern die op de stat niet antwoordt, is geen ontbrekend bestand maar
-/// een kapotte node: hard stoppen ([`EXIT_KERNEL`]), niet stil zonder
-/// init-jobs verder.
+/// een kapotte node: [`fail`], niet stil zonder init-jobs verder.
 async fn init_specs(app: &'static App, cfg: &BootConfig, c: &mut SystemClient) -> Option<String> {
     if let Some(j) = &cfg.init_jobs {
         return Some(j.clone());
@@ -689,11 +699,8 @@ async fn init_specs(app: &'static App, cfg: &BootConfig, c: &mut SystemClient) -
             | applib::sys::Error::Timeout
             | applib::sys::Error::Protocol(_)),
         ) => {
-            say!(
-                "hop: the kernel did not answer the stat of {INIT_JOBS_FILE} ({e}); stopping (exit {EXIT_KERNEL}) HOP_KERNEL_GONE step=init"
-            );
-            app.shutdown(EXIT_KERNEL).await;
-            return None;
+            let why = format!("the kernel did not answer the stat of {INIT_JOBS_FILE} ({e})");
+            fail(app, EXIT_KERNEL, "init", why).await
         }
         Err(e) => {
             say!("hop: {INIT_JOBS_FILE}: {e}; no init jobs HOP_INIT_FAIL");
@@ -876,38 +883,42 @@ async fn leave<S, I>(
     flush(node);
 }
 
-/// Bindt een poort, of zegt luid waarom niet.
-fn bind(net: &'static Net, number: u16) -> Option<TcpListener> {
-    match net.tcp_listen(number) {
-        Ok(l) => Some(l),
-        Err(e) => {
-            say!("hop: cannot listen on :{number}: {e} HOP_LISTEN_FAIL");
-            None
-        }
-    }
-}
-
 async fn resident(app: &'static App) {
     let exec: &'static Exec = EXEC.get();
     say!("hop: resident starting in slot {} HOP_BOOT", app.slot());
     let net = match appnet::up(app) {
         Ok(n) => n,
         Err(e) => {
-            say!("hop: no network, no API: {e} HOP_NET_FAIL");
-            return;
+            fail(
+                app,
+                EXIT_INTERN,
+                "net",
+                format_args!("no network, no API: {e}"),
+            )
+            .await
         }
     };
     let [a, b, c, d] = net.ip();
     let slot_ip = format!("{a}.{b}.{c}.{d}");
-    let cfg = match BootConfig::from_env(|k| app.env(k).map(String::from), app.slot(), &slot_ip) {
+    // Alle config eerst, vóór de eerste spawn: een config die niet klopt, is
+    // een node die niet start (besluit H2, 01-11), niet een halve met een
+    // klok en een store-dienst maar zonder API. Fail closed, zoals de
+    // Go-kern: zonder sleutel geen API. Een lock die niet klopt: een node die
+    // stil standalone draait naast zijn cluster, is een tweede leader.
+    let env = |k: &str| app.env(k).map(String::from);
+    let cfg = match BootConfig::from_env(env, app.slot(), &slot_ip) {
         Ok(c) => c,
-        Err(e) => {
-            // Fail closed, zoals de Go-kern: de bewoner blijft leven (de
-            // heartbeat loopt) maar opent geen API.
-            say!("hop: REFUSING to start agent/leader: {e} HOPOS_API_NO_AUTH");
-            core::future::pending::<()>().await;
-            return;
-        }
+        Err(e) => fail(app, EXIT_CONFIG, "config", e).await,
+    };
+    let cluster_cfg = match ClusterConfig::from_env(env, &cfg.cluster, cfg.s3.as_ref()) {
+        Ok(c) => c,
+        Err(e) => fail(app, EXIT_CONFIG, "config", e).await,
+    };
+    // Het adres zoals de andere nodes deze node zien (achter een NAT anders
+    // dan het slot-adres); de listeners blijven op de poorten van `cfg`.
+    let seen = match lock::advertised(&cfg, env) {
+        Ok(c) => c,
+        Err(e) => fail(app, EXIT_CONFIG, "config", e).await,
     };
     if cfg.insecure {
         say!("hop: WARNING API authentication is OFF (HOPOS_INSECURE=1) HOPOS_API_INSECURE");
@@ -915,22 +926,6 @@ async fn resident(app: &'static App) {
     if cfg.insecure_ignored {
         say!("hop: HOPOS_INSECURE=1 ignored: HOPOS_APIKEY is set, the API authenticates");
     }
-    // De lock van de cluster (`HOPOS_LOCK_URL`, of `HOPOS_LOCK_TYPE=s3`); zonder
-    // blijft de node de standalone leader. Een lock die niet klopt, is een
-    // weigering zoals een ontbrekende sleutel: een node die stil standalone
-    // draait naast zijn cluster, is een tweede leader.
-    let cluster_cfg = match ClusterConfig::from_env(
-        |k| app.env(k).map(String::from),
-        &cfg.cluster,
-        cfg.s3.as_ref(),
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            say!("hop: REFUSING to start agent/leader: {e} HOP_LOCK_BAD");
-            core::future::pending::<()>().await;
-            return;
-        }
-    };
     if cfg.memory_defaulted {
         say!(
             "hop: HOPOS_MEMORY not set; planning against {} bytes HOP_MEMORY_DEFAULT",
@@ -944,7 +939,13 @@ async fn resident(app: &'static App) {
     // De tijdserver: `HOPOS_NTP` (`host` of `host:poort`), anders pool.ntp.org.
     let (ntp_host, ntp_port) = sntp::server_from(app.env(sntp::ENV_NTP));
     if let Err(e) = exec.spawn(clock_task(app, net, exec, ntp_host, ntp_port)) {
-        say!("hop: cannot spawn the clock task: {e}; no SNTP, https refused HOP_SNTP_FAIL");
+        fail(
+            app,
+            EXIT_INTERN,
+            "spawn",
+            format_args!("the clock task: {e}"),
+        )
+        .await;
     }
     if let Err(e) = exec.spawn(store_task(
         app,
@@ -953,9 +954,13 @@ async fn resident(app: &'static App) {
         cfg.s3.clone(),
         cfg.cluster.clone(),
     )) {
-        say!(
-            "hop: cannot spawn the store task: {e}; app store calls wait and fail HOP_STORE_KERNEL"
-        );
+        fail(
+            app,
+            EXIT_INTERN,
+            "spawn",
+            format_args!("the store task: {e}"),
+        )
+        .await;
     }
 
     let mut sys = KernSys::new(net.system_client(), cfg.cores);
@@ -973,12 +978,22 @@ async fn resident(app: &'static App) {
     // downloader voor de kernbundel van een flip (zeldzaam, en die wacht op
     // de kern zelf, crate::flip).
     let Some((pieces_tx, mut pieces)) = PIECES.split() else {
-        say!("hop: the download queue was already taken HOP_SPAWN_FAIL");
-        return;
+        fail(
+            app,
+            EXIT_INTERN,
+            "spawn",
+            "the download queue was already taken",
+        )
+        .await
     };
     if let Err(e) = exec.spawn(download::download_task(images, &ORDERS, pieces_tx, &WANTED)) {
-        say!("hop: cannot spawn the download task: {e} HOP_SPAWN_FAIL");
-        return;
+        fail(
+            app,
+            EXIT_INTERN,
+            "spawn",
+            format_args!("the download task: {e}"),
+        )
+        .await;
     }
     let images = HttpImages::new(
         SlotConnect { net, exec },
@@ -987,16 +1002,6 @@ async fn resident(app: &'static App) {
         wall_secs,
         quiet_rng(app, 5),
     );
-    // Het adres zoals de andere nodes deze node zien (achter een NAT anders
-    // dan het slot-adres); de listeners blijven op de poorten van `cfg`.
-    let seen = match lock::advertised(&cfg, |k| app.env(k).map(String::from)) {
-        Ok(c) => c,
-        Err(e) => {
-            say!("hop: REFUSING to start agent/leader: {e} HOP_LOCK_BAD");
-            core::future::pending::<()>().await;
-            return;
-        }
-    };
     let clustered = cluster_cfg.is_some();
     let mut node = match cluster_cfg {
         None => Node::new(&seen, sys, images, now(app, exec)),
@@ -1005,10 +1010,7 @@ async fn resident(app: &'static App) {
             // clusterstaat, niet de boot van deze node.
             match start_cluster(app, net, exec, &seen, cc, specs.take()).await {
                 Ok(parts) => Node::new_clustered(&seen, sys, images, now(app, exec), parts),
-                Err(e) => {
-                    say!("hop: cannot start the cluster: {e} HOP_SPAWN_FAIL");
-                    return;
-                }
+                Err(e) => fail(app, EXIT_INTERN, "spawn", format_args!("the cluster: {e}")).await,
             }
         }
     };
@@ -1022,10 +1024,10 @@ async fn resident(app: &'static App) {
     let kept = node.restore(now(app, exec)).await;
     if kept == Kept::Unreachable {
         // Nooit leeg beginnen omdat de kern zweeg: de veger zou elke app
-        // stoppen. Hard; de watchdog reset de node.
+        // stoppen.
         flush(&mut node);
-        app.shutdown(EXIT_KERNEL).await;
-        return;
+        let why = "the kernel did not answer STATE_GET; an empty start would stop every app";
+        fail(app, EXIT_KERNEL, "restore", why).await;
     }
     node.sweep_strays().await;
     flush(&mut node);
@@ -1049,7 +1051,7 @@ async fn resident(app: &'static App) {
     let hub: &'static Hub = Box::leak(Box::new(Hub::new(2 * WORKERS)));
     // De listeners binden hier, vóór de spawn: een spawn krijgt zijn slot pas
     // in de volgende ronde van de executor, en zo hoeft niemand daarop te
-    // wachten. Een poort die niet bindt, is luid en kost alleen die poort.
+    // wachten. Een poort die niet bindt, is een node zonder API: hard.
     let ports = [
         (0, Port::Agent, cfg.port),
         (WORKERS, Port::Leader, cfg.leader_port()),
@@ -1058,8 +1060,17 @@ async fn resident(app: &'static App) {
     // eigenaar wacht na een aangenomen herstart op de werker die hem droeg.
     let mut agent_pool: Option<&'static Handoff<TcpStream>> = None;
     for (first_slot, port, number) in ports {
-        let Some(l) = bind(net, number) else {
-            continue;
+        let l = match net.tcp_listen(number) {
+            Ok(l) => l,
+            Err(e) => {
+                fail(
+                    app,
+                    EXIT_INTERN,
+                    "listen",
+                    format_args!("port :{number}: {e}"),
+                )
+                .await
+            }
         };
         let pool: &'static Handoff<TcpStream> = Box::leak(Box::new(Handoff::new(WORKERS)));
         if port == Port::Agent {
@@ -1075,8 +1086,13 @@ async fn resident(app: &'static App) {
             spawned = exec.spawn(work(pool, i, exec, hub, first_slot + i, port, client));
         }
         if let Err(e) = spawned {
-            say!("hop: cannot spawn the listeners: {e} HOP_SPAWN_FAIL");
-            return;
+            fail(
+                app,
+                EXIT_INTERN,
+                "spawn",
+                format_args!("the listeners: {e}"),
+            )
+            .await;
         }
     }
     say!(
