@@ -26,8 +26,8 @@ fn bl<F: core::future::Future>(f: F) -> F::Output {
     }
 }
 
-fn sys(max_slots: usize) -> (Sys, FakeKern) {
-    let k = FakeKern::new(max_slots);
+fn sys() -> (Sys, FakeKern) {
+    let k = FakeKern::new();
     (KernSys::new(k.client(), 4), k)
 }
 
@@ -52,7 +52,7 @@ const ELF: &[u8] = b"\x7fELF-an-app-image";
 
 #[test]
 fn volumes_travel_in_the_start_and_the_kern_decodes_them() {
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     let mut sp = spec(ELF.len() as u64);
     sp.mounts
         .insert(String::from("/volumes/media"), String::from("/media"));
@@ -80,7 +80,7 @@ fn volumes_travel_in_the_start_and_the_kern_decodes_them() {
 #[test]
 fn start_slot_is_op_0x40_with_the_start_head_of_abi() {
     // Toets de payload zoals de kern hem leest: StartReq::decode van abi.
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     let slot = bl(s.start_slot(&spec(ELF.len() as u64))).unwrap();
     assert_eq!(slot.0, 1, "de kern kiest het slot");
     let st = k.0.borrow();
@@ -94,7 +94,7 @@ fn start_slot_is_op_0x40_with_the_start_head_of_abi() {
 
 #[test]
 fn start_slot_carries_the_ports_of_the_jobspec() {
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     let mut sp = spec(ELF.len() as u64);
     sp.ports.insert(String::from("http"), 80);
     sp.ports.insert(String::from("web"), 80);
@@ -171,7 +171,7 @@ fn start_ports_use_the_wire_form_of_abi() {
 
 #[test]
 fn stream_more_then_placed_with_offsets() {
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     let slot = bl(s.start_slot(&spec(ELF.len() as u64))).unwrap();
     assert_eq!(bl(s.stream_image(slot, &ELF[..5])).unwrap(), Streamed::More);
     assert_eq!(
@@ -193,7 +193,7 @@ fn stream_more_then_placed_with_offsets() {
 
 #[test]
 fn a_failed_placement_carries_the_kernels_reason() {
-    let (mut s, _k) = sys(4);
+    let (mut s, _k) = sys();
     let slot = bl(s.start_slot(&spec(4))).unwrap();
     assert_eq!(
         bl(s.stream_image(slot, b"junk")).unwrap(),
@@ -205,17 +205,20 @@ fn a_failed_placement_carries_the_kernels_reason() {
 
 #[test]
 fn a_full_kernel_is_no_capacity_not_a_crash() {
-    let (mut s, _k) = sys(1);
+    // "Past het?" is geheugen, geen aantal slots: een tweede partitie van
+    // 32 MiB past niet in 48.
+    let (mut s, k) = sys();
+    k.0.borrow_mut().memory = 48 << 20;
     bl(s.start_slot(&spec(4))).unwrap();
     match bl(s.start_slot(&spec(4))) {
-        Err(SysError::NoCapacity(why)) => assert!(why.contains("no free run")),
+        Err(SysError::NoCapacity(why)) => assert!(why.contains("does not fit"), "{why}"),
         other => panic!("verwacht NoCapacity, kreeg {other:?}"),
     }
 }
 
 #[test]
 fn a_refused_chunk_is_an_error_and_closes_the_stream() {
-    let (mut s, _k) = sys(4);
+    let (mut s, _k) = sys();
     let slot = bl(s.start_slot(&spec(3))).unwrap();
     match bl(s.stream_image(slot, b"toolong")) {
         Err(SysError::Refused(why)) => assert!(why.contains("more bytes"), "{why}"),
@@ -225,7 +228,7 @@ fn a_refused_chunk_is_an_error_and_closes_the_stream() {
 
 #[test]
 fn status_decodes_slot_info() {
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     let slot = bl(s.start_slot(&spec(ELF.len() as u64))).unwrap();
     let st = bl(s.slot_status(slot)).unwrap();
     assert_eq!((st.state, st.core_on), (SlotState::Streaming, false));
@@ -248,7 +251,7 @@ fn status_decodes_slot_info() {
 /// cpu-procent van een taak), naast de partitie als geheugenlimiet.
 #[test]
 fn status_carries_the_cores_of_the_slot() {
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     k.0.borrow_mut().system.insert(
         3,
         systemapi::SlotInfo {
@@ -271,7 +274,7 @@ fn status_carries_the_cores_of_the_slot() {
 /// deelt hem met de kern); een slot zonder core (span 0) heeft er geen.
 #[test]
 fn status_carries_the_core_of_the_slot_and_0_is_a_core() {
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     let info = |core, span| systemapi::SlotInfo {
         state: 2,
         core_on: 1,
@@ -288,7 +291,7 @@ fn status_carries_the_core_of_the_slot_and_0_is_a_core() {
 
 #[test]
 fn stop_frees_and_an_unknown_stop_is_not_confirmed() {
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     let slot = bl(s.start_slot(&spec(4))).unwrap();
     assert_eq!(bl(s.stop_slot(slot, 3000)), Ok(()));
     assert!(k.0.borrow().slots.is_empty());
@@ -298,7 +301,7 @@ fn stop_frees_and_an_unknown_stop_is_not_confirmed() {
 #[test]
 fn the_state_goes_to_the_kernel_and_comes_back() {
     use agent::Store;
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     assert_eq!(bl(s.load()), Ok(None), "nothing yet");
     bl(s.save(b"{\"version\":2}")).unwrap();
     bl(s.save(b"{}")).unwrap();
@@ -315,7 +318,7 @@ fn the_state_goes_to_the_kernel_and_comes_back() {
 #[test]
 fn a_state_bigger_than_one_bite_never_leaves_hop() {
     use agent::Store;
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     let big = alloc::vec![b'x'; abi::systemapi::HOP_STATE_MAX + 1];
     assert!(matches!(
         bl(s.save(&big)),
@@ -333,7 +336,7 @@ fn a_refused_state_op_is_a_refusal_not_a_lost_connection() {
     // Een foutstatus op STATE_PUT of STATE_GET (dat doet de kern nooit) is
     // een weigering, geen verbroken verbinding.
     use agent::Store;
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     k.0.borrow_mut().no_state_ops = true;
     let refused = agent::StoreError::Refused {
         status: hopabi::STATUS_ERROR,
@@ -349,7 +352,7 @@ fn a_refused_state_op_is_a_refusal_not_a_lost_connection() {
 fn no_storage_is_not_found() {
     // Zonder schijf zegt de kern op elke bestandscall STATUS_NO_ENT (hop-os
     // 4dc42af), net als op een lege schijf: voor Hop "geen init-jobs".
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     k.0.borrow_mut()
         .files
         .insert(String::from("/hop/init-jobs.json"), b"[]".to_vec());
@@ -361,7 +364,7 @@ fn no_storage_is_not_found() {
 
 #[test]
 fn next_log_and_set_clock() {
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     k.0.borrow_mut()
         .console
         .push_back(b"slot 2: hello from web".to_vec());
@@ -388,7 +391,7 @@ fn a_chunk_bigger_than_one_io_bite_goes_in_bites() {
     let big = applib::sys::MAX_CHUNK + 10;
     let mut image = alloc::vec![0u8; big];
     image[..4].copy_from_slice(b"\x7fELF");
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     let slot = bl(s.start_slot(&spec(big as u64))).unwrap();
     assert_eq!(bl(s.stream_image(slot, &image)).unwrap(), Streamed::Placed);
     let streams =
@@ -403,7 +406,7 @@ fn a_chunk_bigger_than_one_io_bite_goes_in_bites() {
 #[test]
 fn hop_runner_places_a_task_through_the_frames() {
     // De hele runner-kant: start, lengte, brokken, en de kooi als pid.
-    let (s, k) = sys(4);
+    let (s, k) = sys();
     let mut r = HopRunner::new(s, BTreeMap::new(), LogPolicy::default());
     let empty = BTreeMap::new();
     let ports = BTreeMap::new();
@@ -440,7 +443,7 @@ fn hop_runner_places_a_task_through_the_frames() {
 fn stop_frame_bytes_on_the_wire() {
     // De rauwe bytes: framekop "HOPS" v1 Call, dan de requestkop van 24
     // bytes met op 0x42, off = slot en n = de termijn in ms.
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     let slot = bl(s.start_slot(&spec(4))).unwrap();
     bl(s.stop_slot(slot, 3000)).unwrap();
     let st = k.0.borrow();
@@ -461,7 +464,7 @@ fn stop_frame_bytes_on_the_wire() {
 fn store_ops_speak_the_wire_of_abi() {
     use crate::fake::FakeStore;
     use runner::{StoreOp, StoreStatus};
-    let (mut s, k) = sys(4);
+    let (mut s, k) = sys();
     use runner::StoreNext;
     assert_eq!(
         bl(s.next_store(0)).unwrap(),

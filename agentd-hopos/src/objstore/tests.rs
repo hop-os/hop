@@ -106,7 +106,7 @@ fn call(op: u8, key: &str, path: &str) -> FakeStore {
 #[test]
 fn the_service_runs_the_store_demo_under_the_cluster_prefix() {
     use abi::hopabi::{OP_STORE_DROP, OP_STORE_LIST, OP_STORE_PULL, OP_STORE_PUSH};
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     let mut sys = KernSys::new(k.client(), 4);
     let mut svc = Service::new(Some(RamBucket::default()), "hopos");
     assert_eq!(bl(svc.serve_one(&mut sys)).unwrap(), Served::Quiet);
@@ -163,7 +163,7 @@ fn the_service_runs_the_store_demo_under_the_cluster_prefix() {
 #[test]
 fn refusals_are_loud_for_the_app() {
     use abi::hopabi::{OP_STORE_LIST, OP_STORE_PUSH, STATUS_ERROR};
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     let mut sys = KernSys::new(k.client(), 4);
     let mut bare: Service<RamBucket> = Service::new(None, "hopos");
     assert!(!bare.has_bucket());

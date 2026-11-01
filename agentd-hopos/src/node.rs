@@ -421,10 +421,11 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     /// tot Hop het slot met de echte spin erin stopte); het blob in de kern
     /// kent geen vorige boot, en de overname eist een slot dat draait.
     pub async fn sweep_strays(&mut self) -> Result<(), Fatal> {
-        let stopped = self.runner.sweep_strays().await.map_err(|e| Fatal {
-            code: EXIT_KERNEL,
-            why: format!("the sweep of stray residents: {e}"),
-        })?;
+        let stopped = self
+            .runner
+            .sweep_strays(self.own_slot)
+            .await
+            .map_err(|e| kern("the sweep of stray residents", e))?;
         for slot in stopped {
             self.lines.push(format!(
                 "hop: stray resident in slot {} stopped: not in the saved state HOP_STRAY_STOPPED slot={}",

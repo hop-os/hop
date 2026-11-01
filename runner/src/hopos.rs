@@ -201,37 +201,31 @@ impl<S: SystemApi> HopRunner<S> {
     /// "slot 5 out of range 1..4". Een node heeft één Hop, dus een bewoner
     /// die hij niet kent, is van niemand.
     ///
-    /// Van slot 2 (boven het eigen, 1) tot de kern het slot weigert ("out
-    /// of range"): de kern deelt slots uit tot zijn `max_slots` (op rk3566
-    /// 11, op de LicheeRV 16), niet tot de app-cores van Hop, en een bewoner
-    /// in een sharegroup zat er vaak boven (F6). Een kern die niet antwoordt,
-    /// of een stop die hij niet bevestigt, is een fout: bij de start hard.
-    ///
-    /// TIJDELIJK: de weigering als einde van het bereik. Slots zijn voor Hop
-    /// geen vast aantal ("we vragen altijd past het, zo niet reject", Derek
-    /// 01-11); de juiste vorm is een call waarin de kern de lijst van levende
-    /// slots geeft (kern-werk). Tot die call er is, vraagt de veger slot voor
-    /// slot.
-    pub async fn sweep_strays(&mut self) -> core::result::Result<Vec<Slot>, SysError> {
+    /// Over de bezette slots die de kern opsomt ([`SystemApi::occupied`],
+    /// per stuk zoals `getdents`, tot hij er geen meer heeft): er is geen
+    /// maximum aantal slots (Derek 01-11), dus de veger vraagt niet slot voor
+    /// slot. `own` is het slot van Hop zelf (de kern somt het ook op); dat
+    /// en de kooien van deze runner slaat hij over. Een kern die niet
+    /// antwoordt, of een stop die hij niet bevestigt, is een fout: bij de
+    /// start hard.
+    pub async fn sweep_strays(&mut self, own: Slot) -> core::result::Result<Vec<Slot>, SysError> {
         let mut stopped = Vec::new();
-        let mut slot = Slot(2);
+        let mut after = Slot(0);
         loop {
-            if !self.in_use.contains_key(&slot) {
-                let st = match self.sys.slot_status(slot).await {
-                    Ok(st) => st,
-                    // Buiten bereik: elk slot van de kern is gezien.
-                    Err(SysError::Refused(_)) => return Ok(stopped),
-                    Err(e) => return Err(e),
-                };
-                if st.state == SlotState::Running {
+            let page = self.sys.occupied(after).await?;
+            let Some(&last) = page.last() else {
+                return Ok(stopped);
+            };
+            for slot in page {
+                if slot == own || self.in_use.contains_key(&slot) {
+                    continue;
+                }
+                if self.sys.slot_status(slot).await?.state == SlotState::Running {
                     self.sys.stop_slot(slot, HOP_STOP_TIMEOUT_MS).await?;
                     stopped.push(slot);
                 }
             }
-            let Some(next) = slot.0.checked_add(1) else {
-                return Ok(stopped);
-            };
-            slot = Slot(next);
+            after = last;
         }
     }
 
@@ -246,10 +240,12 @@ impl<S: SystemApi> HopRunner<S> {
         &mut self,
         task: &TaskRef<'_>,
     ) -> core::result::Result<(Option<u8>, Option<u64>, u64, Option<u64>), SysError> {
-        if task.pid == 0 {
+        // Geen kooi van deze runner: niets om te meten. Het nummer uit het
+        // taakrecord neemt hij niet aan: de kern deelt een vrij slot meteen
+        // weer uit, aan een ander.
+        let Some(slot) = self.slot_of(task.id) else {
             return Ok((None, None, 0, None));
-        }
-        let slot = self.slot_of(task.id).unwrap_or(Slot(task.pid));
+        };
         let s = self.sys.slot_status(slot).await?;
         Ok((
             s.cpu_pct,
@@ -598,7 +594,12 @@ impl<S: SystemApi> Runner for HopRunner<S> {
         if task.pid == 0 {
             return Ok(RunState::Running);
         }
-        let slot = self.slot_of(task.id).unwrap_or(Slot(task.pid));
+        // Met pid maar zonder kooi van deze runner: voor ons draait hij niet.
+        // Het nummer uit het taakrecord vraagt hij niet: dat slot kan al van
+        // een ander zijn (de kern geeft het laagste vrije uit).
+        let Some(slot) = self.slot_of(task.id) else {
+            return Ok(RunState::Failed);
+        };
         let s = self.sys.slot_status(slot).await.map_err(Error::System)?;
         if s.core_on {
             return Ok(RunState::Running);

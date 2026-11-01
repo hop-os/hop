@@ -63,11 +63,11 @@ pub struct KernState {
     /// Slots die de kern zelf beantwoordt, met een vaste stand: de kern in
     /// slot 0 en Hop in zijn eigen slot. Een start slaat ze over.
     pub system: BTreeMap<u64, SlotInfo>,
-    /// Hoeveel slots er tegelijk passen; daarboven "no free run".
-    pub max_slots: usize,
-    /// Het hoogste slotnummer (de `max_slots` van een board in de kern):
-    /// daarboven weigert `SLOT_STATUS` met "out of range".
-    pub slot_cap: u64,
+    /// Het geheugen voor de partities van de apps, in bytes: een start die
+    /// er niet meer in past, weigert de kern ("does not fit the pool"). Een
+    /// maximum aantal slots is er niet (hop-os b5bd0a2): de kern deelt het
+    /// laagste vrije nummer uit.
+    pub memory: u64,
     /// Elke op die binnenkwam, in volgorde.
     pub ops: Vec<u8>,
     /// De laatst gezette klok.
@@ -145,15 +145,23 @@ pub struct FakeStore {
 #[derive(Clone, Debug)]
 pub struct FakeKern(pub Rc<RefCell<KernState>>);
 
+impl Default for FakeKern {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FakeKern {
-    /// Een kern met plaats voor `max_slots` slots.
-    pub fn new(max_slots: usize) -> Self {
+    /// Een kern met [`FakeKern::MEMORY`] voor de apps.
+    pub fn new() -> Self {
         Self(Rc::new(RefCell::new(KernState {
-            max_slots,
-            slot_cap: 16,
+            memory: Self::MEMORY,
             ..KernState::default()
         })))
     }
+
+    /// Het geheugen van [`FakeKern::new`]: 1 GiB.
+    pub const MEMORY: u64 = 1 << 30;
 
     /// Zet een store-call van een app in de rij; geeft zijn ticket.
     pub fn queue_store(&self, call: FakeStore) -> u64 {
@@ -333,8 +341,12 @@ impl FakeKern {
                 if s.image_size == 0 {
                     return err("image size 0");
                 }
-                if k.slots.len() >= k.max_slots {
-                    return err("no free run of 1 app core(s)");
+                let used: u64 = k.slots.values().map(|s| s.memory_limit).sum();
+                if used.saturating_add(s.memory_limit) > k.memory {
+                    return err(&alloc::format!(
+                        "no partition space: {} MiB does not fit the pool",
+                        s.memory_limit >> 20
+                    ));
                 }
                 let mut slot = 1;
                 while k.slots.contains_key(&slot) || k.system.contains_key(&slot) {
@@ -393,13 +405,7 @@ impl FakeKern {
                 None => err("no such slot"),
             },
             Some(PrivOp::SlotStatus) => {
-                if req.off > k.slot_cap {
-                    return err(&alloc::format!(
-                        "slot {} out of range 1..{}",
-                        req.off,
-                        k.slot_cap
-                    ));
-                }
+                // Een leeg slot is Empty, geen weigering: er is geen bereik.
                 if let Some(info) = k.system.get(&req.off) {
                     return ok(0, &info.encode());
                 }
@@ -424,6 +430,26 @@ impl FakeKern {
                     None => SlotInfo::default(),
                 };
                 ok(0, &info.encode())
+            }
+            Some(PrivOp::Slots) => {
+                // De bezette slots na `off` (de kern, slot 0, niet), zoveel
+                // als er in `n` bytes passen.
+                let room = usize::try_from(req.n).unwrap_or(usize::MAX) / systemapi::SLOT_LEN;
+                let list: Vec<u64> = k
+                    .slots
+                    .keys()
+                    .chain(k.system.keys())
+                    .copied()
+                    .filter(|&i| i > req.off && i != 0)
+                    .collect::<alloc::collections::BTreeSet<u64>>()
+                    .into_iter()
+                    .take(room)
+                    .collect();
+                let mut d = Vec::new();
+                for i in &list {
+                    d.extend_from_slice(&u16::try_from(*i).unwrap_or(u16::MAX).to_le_bytes());
+                }
+                ok(list.len() as u64, &d)
             }
             Some(PrivOp::NextLog) if req.off != 0 => err("slot out of range (max 0)"),
             Some(PrivOp::NextLog) => match k.console.pop_front() {

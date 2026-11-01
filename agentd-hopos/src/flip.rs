@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn the_bundle_streams_into_a_reserved_slot_and_the_flip_is_asked() {
-        let k = FakeKern::new(4);
+        let k = FakeKern::new();
         let mut sys = KernSys::new(k.client(), 4);
         let mut img = OneFile {
             bytes: bundle(),
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn a_short_download_never_asks_the_flip() {
-        let k = FakeKern::new(4);
+        let k = FakeKern::new();
         let mut sys = KernSys::new(k.client(), 4);
         let mut img = OneFile {
             bytes: bundle(),

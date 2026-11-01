@@ -32,8 +32,11 @@ struct FakeSlot {
     exit_code: u64,
 }
 
-/// Het slot van Hop voor de pomp, buiten de slots die de nep uitdeelt.
+/// Het slot van Hop voor de pomp, buiten de slots die de toetsen gebruiken.
 const HOP: Slot = Slot(1000);
+
+/// Zoveel slots geeft één `SLOTS` van de nep.
+const PAGE: usize = 100;
 
 /// Een kern in het geheugen: het spiegelbeeld van `kern/slots`.
 #[derive(Default)]
@@ -45,8 +48,6 @@ struct FakeSys {
     stop_err: bool,
     /// `SLOT_STATUS` krijgt geen antwoord.
     status_err: bool,
-    /// Het hoogste slot: daarboven weigert `SLOT_STATUS` ("out of range").
-    max_slot: u32,
     /// De plaatsing na de laatste byte faalt (een kapot image).
     place_err: bool,
     stops: Vec<u32>,
@@ -70,7 +71,6 @@ impl FakeSys {
         Self {
             num,
             classes,
-            max_slot: 16,
             ..Default::default()
         }
     }
@@ -99,9 +99,7 @@ impl SystemApi for FakeSys {
         // De kern kiest: het laagste slot zonder eigenaar. Een levende of
         // stromende kooi is bezet.
         let free = |i: &u32| self.slots.get(i).is_none_or(|s| !s.core_on && !s.streaming);
-        let slot = (1..=64)
-            .find(free)
-            .ok_or(SysError::NoCapacity("no free slot".into()))?;
+        let slot = (1..).find(free).unwrap_or(u32::MAX);
         self.slots.insert(
             slot,
             FakeSlot {
@@ -151,9 +149,6 @@ impl SystemApi for FakeSys {
         if self.status_err {
             return Err(SysError::Unreachable("no answer".to_string()));
         }
-        if slot.0 > self.max_slot {
-            return Err(SysError::Refused(format!("slot {} out of range", slot.0)));
-        }
         let mut st = SlotStatus::empty();
         if let Some(s) = self.slots.get(&slot.0) {
             st.core_on = s.core_on;
@@ -175,6 +170,19 @@ impl SystemApi for FakeSys {
             st.cage = self.cage.clone();
         }
         Ok(st)
+    }
+    async fn occupied(&mut self, after: Slot) -> Result<Vec<Slot>, SysError> {
+        if self.status_err {
+            return Err(SysError::Unreachable("no answer".to_string()));
+        }
+        // In stukken van PAGE, zoals de kern ze per bytebudget geeft.
+        Ok(self
+            .slots
+            .iter()
+            .filter(|(i, s)| **i > after.0 && (s.core_on || s.streaming))
+            .map(|(i, _)| Slot(*i))
+            .take(PAGE)
+            .collect())
     }
     async fn next_log_line(&mut self, buf: &mut [u8]) -> Result<Option<usize>, SysError> {
         let Some(line) = self.console.pop_front() else {
@@ -716,7 +724,7 @@ fn adoption_takes_only_running_slots_nobody_owns() {
     assert_eq!(r.cages_in_use(), 2);
     // Wat niet overgenomen is, is van niemand: de veger stopt het stromende slot niet
     // (geen Running), en raakt de overgenomen kooien niet.
-    assert!(bl(r.sweep_strays()).unwrap().is_empty());
+    assert!(bl(r.sweep_strays(Slot(1))).unwrap().is_empty());
 }
 
 #[test]
@@ -757,18 +765,29 @@ fn sweep_strays_stops_only_the_residents_nobody_owns() {
     r.system_mut().live(4);
     // Ook boven de cores van Hop: de kern deelt slots uit tot zijn grens.
     r.system_mut().live(16);
-    assert_eq!(bl(r.sweep_strays()).unwrap(), [Slot(3), Slot(4), Slot(16)]);
+    assert_eq!(
+        bl(r.sweep_strays(Slot(1))).unwrap(),
+        [Slot(3), Slot(4), Slot(16)]
+    );
     assert_eq!(r.system().stops, [3, 4, 16]);
     assert!(r.system().slot(2).core_on);
     // Een tweede ronde vindt niets meer.
-    assert!(bl(r.sweep_strays()).unwrap().is_empty());
+    assert!(bl(r.sweep_strays(Slot(1))).unwrap().is_empty());
+    // Geen grens: ook over 300 slots, in stukken van de kern.
+    for i in 10..310 {
+        r.system_mut().live(i);
+    }
+    let stopped = bl(r.sweep_strays(Slot(1))).unwrap();
+    assert_eq!(stopped.len(), 300);
+    assert_eq!(stopped.last(), Some(&Slot(309)));
+    assert!(r.system().slot(1).core_on, "the own slot is not swept");
     // Een stop die de kern niet bevestigt, of een kern die zwijgt: een fout.
     r.system_mut().live(5);
     r.system_mut().stop_err = true;
-    assert_eq!(bl(r.sweep_strays()), Err(SysError::NotConfirmed));
+    assert_eq!(bl(r.sweep_strays(Slot(1))), Err(SysError::NotConfirmed));
     r.system_mut().status_err = true;
     assert!(matches!(
-        bl(r.sweep_strays()),
+        bl(r.sweep_strays(Slot(1))),
         Err(SysError::Unreachable(_))
     ));
 }

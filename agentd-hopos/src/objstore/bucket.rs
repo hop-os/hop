@@ -719,7 +719,7 @@ mod tests {
     #[test]
     fn big_objects_stream_through_the_bridges_in_chunks() {
         let big: Vec<u8> = (0..(2 * CHUNK + 1234)).map(|i| (i % 251) as u8).collect();
-        let k = FakeKern::new(4);
+        let k = FakeKern::new();
         let mut sys = KernSys::new(k.client(), 4);
         let mut s3 = RamS3 {
             object: big.clone(),

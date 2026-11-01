@@ -74,7 +74,7 @@ from the job spec:
 | --- | --- | --- |
 | `ER_PORT_HTTP` | traffic port, set by Hop from `"ports":{"http":80}` | 80 |
 | `ER_PORT_ADMIN` | admin port, from `"ports":{"admin":9091}` | 9091 |
-| `HOPLB_AGENT` | the agent; the host `HOP` means Hop's own slot (slot 1, `10.100.0.2`) | `http://HOP:9080` |
+| `HOPLB_AGENT` | the agent; the host `HOP` means Hop's own slot (slot 1, `10.100.0.2` on the /16 slot LAN, `applib::net::slot_ip(1)`) | `http://HOP:9080` |
 | `HOPLB_TAG` | tag filter, as `-tag` | none |
 | `HOPLB_API_KEY` | key for `X-Hop-Auth` | none |
 | `HOPLB_VERBOSE` | `1`: one log line per request | off |

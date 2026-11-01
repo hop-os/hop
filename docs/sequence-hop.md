@@ -806,7 +806,7 @@ waarin ik ze zou bekijken.
 | F3 | **Een herstarte geclusterde Hop doet pas mee na zijn eigen SNTP**: `CLOCK_SYNCED` begint per proces op `false`, en `join` eist hem, ook al staat de klok van de kern al. Mislukt de eerste sync, dan na 300 s pas opnieuw: geen renew, geen heartbeat, lease en agent na 30 s weg, de taken elders | `main.rs` (`CLOCK_SYNCED`, `clock_ok`), `node/cluster.rs` (`join`) | H (mechanisme), M (gevolg) |
 | F4 | **De eigenaar wacht op de hele download van een flipbundel of een nieuw Hop-image**, en bij een koude flip op elke stop (3 s per stuk). In die tijd: geen bus (de API staat stil), geen tik, geen stop-bel, en geclusterd geen renew (de elector tikt in de eigenaar) en geen heartbeat | `node.rs` (`flip`, `restart`), `flip.rs` (`fetch_raw`), `main.rs` (de tweede `HttpImages`) | H (mechanisme, zelf getoetst), M (gevolg) |
 | F5 | **Een leider die zijn staat niet kon lezen, leidt met een lege store**; de eerste jobmutatie overschrijft `state/<cluster>` met alleen die job | `node/cluster.rs` (`finish_leading`), `leader/src/persist.rs`, op de host `agentd/src/node.rs` (`become_leader`) | H, zelf getoetst |
-| F6 | **De veger ziet alleen de slots 2 tot en met `HOPOS_CORES`** (`KernSys::num_cores` = de app-cores), terwijl de kern tot `max_slots` uitdeelt: `max(app-cores + 1, 32)`, op rk3566 11 en op de LicheeRV 16. Een bewoner van niemand in een hoger slot (een app in een sharegroup) blijft tot de koude boot | `runner/src/hopos.rs` (`sweep_strays`), `hopos-runner/src/lib.rs` (`num_cores`); hop-os `board/*/src/slots.rs` (`plan`) | H, zelf getoetst |
+| F6 | **De veger ziet alleen de slots 2 tot en met `HOPOS_CORES`** (`KernSys::num_cores` = de app-cores), terwijl de kern tot `max_slots` uitdeelt: `max(app-cores + 1, 32)`, op rk3566 11 en op de LicheeRV 16. Een bewoner van niemand in een hoger slot (een app in een sharegroup) blijft tot de koude boot. **Opgelost (02-11):** er is geen maximum aantal slots meer (hop-os b5bd0a2, het slot-LAN een /16); de veger vraagt de bezette slots aan de kern (`SLOTS`, in stukken zoals `getdents`) en slaat het eigen slot over | `runner/src/hopos.rs` (`sweep_strays`), `hopos-runner/src/lib.rs` (`occupied`) | H, zelf getoetst |
 | F7 | **`slot_status` slikt elke fout**: de laatste stand, of een leeg slot. Een verse Hop heeft geen laatste stand, dus een `SLOT_STATUS` die bij de overname niet antwoordt, laat een draaiende taak niet overnemen én niet vegen; de leader plaatst hem opnieuw naast de oude. Dat gaat tegen de regel van 1c01b0d (bij de start hard) | `hopos-runner/src/lib.rs` (`slot_status`), `runner/src/hopos.rs` (`adopt_running`) | H (code), V (kans) |
 | F8 | **`https` vóór de eerste SNTP faalt** (leanhttps `NoClock`) en herstart met back-off, terwijl `HOP_SNTP_FAIL` en het commentaar zeggen dat https "wacht". De kloktaak loopt naast het zaaien, dus een init-job van GitHub faalt bij een koude boot vrijwel altijd eerst (met een Crash-event) | `main.rs` (`clock_task`), `fetch.rs`, `agent/src/node.rs` (`schedule_restart`) | H (mechanisme), M (hoe vaak) |
 | F9 | **Een halflevende Hop na een late configweigering**: `advertised` komt ná de spawn van klok-, store- en downloadtaak, en met `pending()` blijven `SET_CLOCK` en de store-dienst voor de apps lopen onder "REFUSING to start agent/leader" | `main.rs` (`resident`) | H, zelf getoetst |
@@ -985,7 +985,7 @@ naar hetzelfde gaat weg.
 | De klok als parallelle taak; https faalt tot ze er is (F8); een herstarte Hop wacht op zijn eigen SNTP (F3) | **De klok als stap**, ná de veger en vóór het zaaien of de cluster: één sync met termijn (DNS plus `ATTEMPTS` × 3 s), `SET_CLOCK` over de hoofdverbinding. Na een herstart zegt het blob dat de klok staat (vraag 5) |
 | `init_specs` over de hoofdverbinding (de werkboom) | **Blijft**, als stap vóór de restore |
 | Restore: `Unreadable` begint leeg (F2); een `SLOT_STATUS` zonder antwoord is een leeg slot (F7) | **Elke kern-call van de start is hard**: `Unreachable`, `Unreadable` (vraag 3) en een `SLOT_STATUS` zonder antwoord bij het adopteren en vegen |
-| De veger tot `HOPOS_CORES` (F6) | **De veger tot `max_slots`.** De kern geeft het aantal slots in de env (`HOPOS_SLOTS`, kern-werk), of de veger loopt tot de kern "buiten bereik" zegt |
+| De veger tot `HOPOS_CORES` (F6) | **De veger over de bezette slots.** Er is geen maximum (02-11): de kern somt ze op (`SLOTS`, hop-os b5bd0a2); een `HOPOS_SLOTS` bestaat niet |
 | Spawn van klok en store: een regel en door | **Elke spawn is `fail(spawn)`** |
 | Standalone na een herstart twee registraties (S12) | **Eén**, na de restore |
 
@@ -1169,7 +1169,8 @@ krijgt elke agent zijn eigen bestanden.
      `SET_CLOCK` via de eigenaar, elke spawn hard, één registratie.
    - **b. De staat en de restore** (`node.rs`, `hopos-runner/src/state.rs`,
      `runner/src/hopos.rs`): S4, `Unreadable` hard, adopteren en vegen hard
-     en tot `max_slots` (met `HOPOS_SLOTS` uit hop-os `kern/src/nodecfg.rs`).
+     over de bezette slots die de kern opsomt (`SLOTS`; er is geen
+     maximum en geen `HOPOS_SLOTS`, 02-11).
    - **c. De downloads** (`download.rs`, `flip.rs`, `restart.rs`, `node.rs`
      `flip` en `restart`): bundel en image via de downloadtaak (F4, S6), en
      de koude weg terug weg als deel 1 §13.7 er is.

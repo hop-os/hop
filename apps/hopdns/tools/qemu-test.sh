@@ -9,7 +9,8 @@
 # zijn eigen Hop (de standaardpeer http://HOP:9080, HOP is slot 1), bouwt
 # zijn cache uit /v1/agents en /v1/tasks, en vraagt dan zichzelf over UDP
 # naar welcome.hop.local. Het antwoord moet het slot-adres van welcome zijn
-# (10.100.0.<slot+1>): een buurslot bereikt welcome daar rechtstreeks.
+# (het slot-LAN is een /16: slot i is 10.100.0.1 + i, applib::net::slot_ip):
+# een buurslot bereikt welcome daar rechtstreeks.
 #
 # Waarom de vraag van binnen komt: image/qemu-run.sh van hop-os zet alleen
 # TCP-hostfwd's (system-API, agent, leader, WEBPORT). Een vraag van de host
@@ -204,7 +205,8 @@ wait "$QPID" 2>/dev/null || true
 QPID=""
 
 WANT_IP=""
-[ -n "$WSLOT" ] && WANT_IP="10.100.0.$((WSLOT + 1))"
+# 10.100.0.1 + slot over de laatste twee bytes (het /16, geen maximum aantal slots).
+[ -n "$WSLOT" ] && WANT_IP="10.100.$(((WSLOT + 1) / 256)).$(((WSLOT + 1) % 256))"
 MARKS="$BOOT_MARKS"
 [ -n "$WSLOT" ] && MARKS="$MARKS|slot $WSLOT: 1 port\\(s\\) published tcp\\+udp on the uplink: :80 HOPOS_SLOT_PUBLISH|slot $WSLOT: .*HOPOS_WELCOME_UP port=80"
 if [ -n "$DSLOT" ]; then

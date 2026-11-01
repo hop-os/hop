@@ -437,8 +437,9 @@ fn a_storm_of_jobs_becomes_one_full_refresh() {
 
 #[test]
 fn own_node_tasks_get_their_slot_address() {
+    // Het slot-LAN is een /16: slot i is 10.100.0.1 + i (applib::net::slot_ip).
     fn slot_ip(n: u64) -> [u8; 4] {
-        [10, 100, 0, 1 + n as u8]
+        (0x0a64_0001 + n as u32).to_be_bytes()
     }
     let local = Local {
         node: "n1",
@@ -450,7 +451,8 @@ fn own_node_tasks_get_their_slot_address() {
     ];
     let mut here = running("t1", "Welcome");
     here.driver = String::from("hop");
-    here.pid = 2;
+    // Boven 254: er is geen maximum aantal slots.
+    here.pid = 300;
     let mut there = running("t2", "welcome");
     there.driver = String::from("hop");
     there.pid = 2;
@@ -458,7 +460,7 @@ fn own_node_tasks_get_their_slot_address() {
     let jobs = build_jobs(&agents, &tasks, Some(&local)).unwrap();
     assert_eq!(
         jobs.get("welcome").unwrap(),
-        &[ip("10.100.0.3"), ip("192.168.1.7")]
+        &[ip("10.100.1.45"), ip("192.168.1.7")]
     );
     // Zonder Local (de host): het adres van de agent, zoals Go.
     let jobs = build_jobs(&agents, &tasks, None).unwrap();

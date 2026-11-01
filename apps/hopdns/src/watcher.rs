@@ -60,9 +60,6 @@ pub const DEBOUNCE: Duration = Duration::from_millis(500);
 /// alles tegelijk verandert.
 pub const MAX_PENDING: usize = 32;
 
-/// De grootste pid die een slot kan zijn (`abi::layout::Slot` is een `u8`).
-const SLOT_MAX: i64 = 255;
-
 fn nanos(d: Duration) -> u64 {
     u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)
 }
@@ -379,9 +376,11 @@ fn task_ip(
     if let Some(l) = local
         && l.node == agent
         && task.driver == "hop"
-        && (1..=SLOT_MAX).contains(&task.pid)
+        // Een slot is een getal van zestien bits (het slot-LAN is een /16,
+        // zonder vast maximum; abi `layout::SLOT_MAX`), 0 is de kern.
+        && let Ok(slot @ 1..) = u16::try_from(task.pid)
     {
-        return Some(Ipv4Addr::from((l.slot_ip)(task.pid.unsigned_abs())));
+        return Some(Ipv4Addr::from((l.slot_ip)(u64::from(slot))));
     }
     agent_ip
 }

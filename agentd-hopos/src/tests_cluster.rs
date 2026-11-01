@@ -38,7 +38,7 @@ use crate::mail::{
     DispatchQueue, Inbox, LeaseQueue, LinkJob, LinkQueue, Mail, Remote, StateOp, StateQueue,
 };
 use crate::relay::Relay;
-use crate::tests::restore;
+use crate::tests::{restore, slot_ip};
 use crate::{ClusterParts, Images, Node, Port, Sink};
 
 const KEY: &[u8] = b"test-key";
@@ -398,7 +398,7 @@ fn boot_cfg() -> BootConfig {
             ("HOPOS_MEMORY", "1073741824"),
         ]),
         2,
-        "10.100.0.2",
+        &slot_ip(2),
     )
     .unwrap()
 }
@@ -682,7 +682,7 @@ fn queues() -> Queues {
 }
 
 fn clustered() -> (TestNode, Queues) {
-    clustered_on(&FakeKern::new(4))
+    clustered_on(&FakeKern::new())
 }
 
 fn clustered_on(k: &FakeKern) -> (TestNode, Queues) {
@@ -746,9 +746,9 @@ fn run_on_licheerv(jobs: &[&str]) -> (Vec<u16>, Vec<String>) {
         ("HOPOS_MEMORY", "268435456"),
         ("HOPOS_SYSTEM_CORE", "1"),
     ];
-    let cfg = BootConfig::from_env(env(&pairs), 2, "10.100.0.2").unwrap();
+    let cfg = BootConfig::from_env(env(&pairs), 2, &slot_ip(2)).unwrap();
     assert_eq!((cfg.cores, cfg.system_core), (0, true));
-    let (mut n, _q) = clustered_as(&FakeKern::new(4), &cfg);
+    let (mut n, _q) = clustered_as(&FakeKern::new(), &cfg);
     let codes = jobs
         .iter()
         .map(|j| {
@@ -1066,7 +1066,7 @@ fn num(v: &types::json::Value, key: &str) -> f64 {
 
 #[test]
 fn the_heartbeat_to_the_leader_carries_the_kernel_and_hop() {
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     system_slots(&k, 100);
     let (mut n, q) = clustered_on(&k);
     n.cluster_boot(T0);
@@ -1121,7 +1121,7 @@ fn the_heartbeat_to_the_leader_carries_the_kernel_and_hop() {
 
 #[test]
 fn a_kernel_without_slot_0_leaves_the_kernel_out() {
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     system_slots(&k, 100);
     // Een kern van vóór slot 0: de stand van slot 0 is leeg.
     k.0.borrow_mut().system.remove(&0);
@@ -1144,7 +1144,7 @@ fn a_kernel_without_slot_0_leaves_the_kernel_out() {
 
 #[test]
 fn the_leader_shows_the_kernel_and_hop_of_every_agent() {
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     system_slots(&k, 100);
     let (mut n, q) = clustered_on(&k);
     n.cluster_boot(T0);
@@ -1461,7 +1461,7 @@ fn a_hop_restarted_within_the_ttl_keeps_its_lease() {
 /// De staat die de vorige Hop bij de kern legde: welcome in slot 1, dat de
 /// kern nog als draaiend meldt.
 fn kernel_with_welcome() -> FakeKern {
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     k.0.borrow_mut().slots.insert(
         1,
         hopos_runner::fake::FakeSlot {

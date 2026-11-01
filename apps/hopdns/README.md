@@ -117,7 +117,9 @@ dig @localhost -p 5353 myapp.prod-eu.hop.local  # cluster prod-eu only
 The address of a task is the address of its agent (the host in its
 endpoint), as in Go. A HopOS resident that knows its own node
 (`ER_ATTR_NODE_ID`) answers the node's own tasks with their slot address
-(`10.100.0.<slot+1>`), which a neighbouring slot reaches directly.
+(the slot LAN is a /16: slot `i` is 10.100.0.1 + `i`, so slot 2 is
+`10.100.0.3` and slot 300 is `10.100.1.45`; `applib::net::slot_ip`), which a
+neighbouring slot reaches directly.
 
 If the addresses do not fit the answer (about 30 at 512 bytes, about 74
 with EDNS, depending on the length of the name),

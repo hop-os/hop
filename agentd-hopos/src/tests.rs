@@ -69,6 +69,13 @@ type TestNode = Node<
     MemImages,
 >;
 
+/// Het adres van `slot` op het slot-LAN, zoals applib het een app geeft: een
+/// /16, slot i is 10.100.0.1 + i (hop-os b5bd0a2).
+pub(crate) fn slot_ip(slot: u64) -> String {
+    let [a, b, c, d] = applib::net::slot_ip(slot);
+    format!("{a}.{b}.{c}.{d}")
+}
+
 fn cfg() -> BootConfig {
     cfg_with(&[])
 }
@@ -82,11 +89,11 @@ fn cfg_with(extra: &[(&'static str, &'static str)]) -> BootConfig {
     env.insert("HOPOS_CORES", "4");
     env.insert("HOPOS_MEMORY", "1073741824");
     env.extend(extra.iter().copied());
-    BootConfig::from_env(|k| env.get(k).map(|v| String::from(*v)), 2, "10.100.0.2").unwrap()
+    BootConfig::from_env(|k| env.get(k).map(|v| String::from(*v)), 2, &slot_ip(2)).unwrap()
 }
 
 fn node() -> (TestNode, FakeKern) {
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     let sys = KernSys::new(k.client(), 4);
     let mut images = BTreeMap::new();
     images.insert(String::from("http://images/web.elf"), ELF.to_vec());
@@ -275,7 +282,7 @@ fn post_a_job_and_the_kernel_places_it() {
 /// Een node met web geplaatst en een kernbundel op de server; de nep-kern
 /// neemt de FLIP aan als `flip_ok`.
 fn placed_for_a_flip(flip_ok: bool) -> (TestNode, FakeKern) {
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     k.0.borrow_mut().flip_ok = flip_ok;
     let sys = KernSys::new(k.client(), 4);
     let mut images = BTreeMap::new();
@@ -356,7 +363,7 @@ fn placed_matches_the_agent(n: &mut TestNode) {
 #[test]
 fn a_replaced_artifact_is_what_the_next_placement_gets() {
     const NEW: &[u8] = b"\x7fELF-the-new-web-app";
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     let sys = KernSys::new(k.client(), 4);
     let mut files = BTreeMap::new();
     files.insert(String::from("http://images/web.elf"), ELF.to_vec());
@@ -395,7 +402,10 @@ fn an_unsigned_job_never_reaches_the_kernel() {
 
 #[test]
 fn a_full_kernel_gives_the_task_back() {
-    let k = FakeKern::new(0);
+    // Een plaatsing die niet past: de kern zegt het op geheugen (er is geen
+    // maximum aantal slots), en Hop geeft de taak terug.
+    let k = FakeKern::new();
+    k.0.borrow_mut().memory = 16 << 20;
     let sys = KernSys::new(k.client(), 4);
     let mut images = BTreeMap::new();
     images.insert(String::from("http://images/web.elf"), ELF.to_vec());
@@ -406,7 +416,7 @@ fn a_full_kernel_gives_the_task_back() {
     assert!(
         lines
             .iter()
-            .any(|l| l.contains("HOP_JOB_FAILED") && l.contains("no free run")),
+            .any(|l| l.contains("HOP_JOB_FAILED") && l.contains("does not fit")),
         "{lines:?}"
     );
     assert!(k.0.borrow().slots.is_empty());
@@ -414,7 +424,7 @@ fn a_full_kernel_gives_the_task_back() {
 
 #[test]
 fn a_missing_artifact_frees_the_reservation() {
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     let sys = KernSys::new(k.client(), 4);
     let mut n = Node::new(&cfg(), sys, MemImages::new(BTreeMap::new()), T0);
     http(&mut n, Port::Leader, wire("POST", "/v1/jobs", JOB));
@@ -432,7 +442,7 @@ fn a_missing_artifact_frees_the_reservation() {
 fn boot_config_fails_closed_without_a_key() {
     let none = |_: &str| None::<String>;
     assert_eq!(
-        BootConfig::from_env(none, 3, "10.100.0.3"),
+        BootConfig::from_env(none, 3, &slot_ip(3)),
         Err(BootError::NoKey)
     );
     let insecure = |k: &str| {
@@ -444,11 +454,12 @@ fn boot_config_fails_closed_without_a_key() {
         };
         Some(String::from(v))
     };
-    let c = BootConfig::from_env(insecure, 3, "10.100.0.3").unwrap();
+    // Een slot boven 254: het slot-LAN is een /16, geen maximum aantal slots.
+    let c = BootConfig::from_env(insecure, 300, &slot_ip(300)).unwrap();
     assert!(c.insecure && c.api_key.is_empty());
-    assert_eq!(c.node_id, "hopos-3");
+    assert_eq!(c.node_id, "hopos-300");
     assert_eq!((c.port, c.leader_port()), (8080, 9080));
-    assert_eq!(c.node_ip, "10.100.0.3");
+    assert_eq!(c.node_ip, "10.100.1.45");
     // Wat de kern altijd geeft, heeft geen standaard: zonder is de config fout.
     for var in ["HOPOS_CORES", "HOPOS_MEMORY"] {
         let without = |k: &str| (k != var).then(|| insecure(k)).flatten();
@@ -534,9 +545,11 @@ fn block_on_ready<F: Future>(f: F) -> bool {
 #[test]
 fn a_fresh_resident_stops_what_the_kernel_still_runs() {
     let (mut n, k) = node();
-    // Slot 1 is Hop zelf; de veger blijft daar vanaf.
+    // Hop zit in zijn eigen slot (2 in deze toetsen: `cfg`, uit `App::slot`,
+    // niet aangenomen als 1); de kern somt het op, de veger blijft eraf. De
+    // app krijgt het laagste vrije slot, 1.
     k.0.borrow_mut().slots.insert(
-        1,
+        2,
         hopos_runner::fake::FakeSlot {
             placed: true,
             ..Default::default()
@@ -546,20 +559,56 @@ fn a_fresh_resident_stops_what_the_kernel_still_runs() {
     tick(&mut n, T0 + types::time::SECOND);
     assert_eq!(k.0.borrow().slots.len(), 2);
     // Een nieuwe Hop over dezelfde kern zonder staat (een koude boot): de
-    // bewoner in slot 2 is van niemand en gaat weg.
+    // bewoner in slot 1 is van niemand en gaat weg.
     k.0.borrow_mut().state.clear();
     let sys = KernSys::new(k.client(), 4);
     let mut again = Node::new(&cfg(), sys, MemImages::new(BTreeMap::new()), T0);
     assert_eq!(restore(&mut again, &k, T0), Ok(Kept::Clean));
     block_on(again.sweep_strays()).unwrap();
-    assert_eq!(k.0.borrow().slots.keys().copied().collect::<Vec<_>>(), [1]);
+    assert_eq!(k.0.borrow().slots.keys().copied().collect::<Vec<_>>(), [2]);
     assert!(
         again
             .take_lines()
             .iter()
-            .any(|l| l.contains("HOP_STRAY_STOPPED slot=2"))
+            .any(|l| l.contains("HOP_STRAY_STOPPED slot=1"))
     );
     assert_eq!(again.agent().tasks().count(), 0);
+}
+
+#[test]
+fn the_sweep_has_no_slot_limit() {
+    // Er is geen maximum aantal slots (hop-os b5bd0a2, een slot-LAN van /16):
+    // de veger vraagt de bezette slots in stukken (SLOTS, zoals getdents),
+    // ook voorbij 254, en stopt elke bewoner van niemand behalve Hop zelf.
+    let k = FakeKern::new();
+    for slot in 1..=301 {
+        let placed = hopos_runner::fake::FakeSlot {
+            placed: true,
+            ..Default::default()
+        };
+        k.0.borrow_mut().slots.insert(slot, placed);
+    }
+    let sys = KernSys::new(k.client(), 4);
+    let mut n = Node::new(&cfg(), sys, MemImages::new(BTreeMap::new()), T0);
+    assert_eq!(restore(&mut n, &k, T0), Ok(Kept::Clean));
+    block_on(n.sweep_strays()).unwrap();
+    assert_eq!(k.0.borrow().slots.keys().copied().collect::<Vec<_>>(), [2]);
+    let stopped = n
+        .take_lines()
+        .iter()
+        .filter(|l| l.contains("HOP_STRAY_STOPPED"))
+        .count();
+    assert_eq!(stopped, 300);
+    let slots_calls =
+        k.0.borrow()
+            .ops
+            .iter()
+            .filter(|&&o| o == PrivOp::Slots.op())
+            .count();
+    assert_eq!(
+        slots_calls, 3,
+        "two pieces of at most 256 and the empty end"
+    );
 }
 
 /// Artifacts die vóór elke brok de core teruggeven, zoals TCP waar de
@@ -619,7 +668,7 @@ fn the_api_answers_while_an_image_streams() {
         r#"{"name":"api","artifacts":[{"url":"http://images/api.elf"}],"memory_limit":33554432}"#;
     let mut image = alloc::vec![0u8; SIZE];
     image[..4].copy_from_slice(b"\x7fELF");
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     k.0.borrow_mut().yield_reads = true;
     let sys = KernSys::new(k.client(), 4);
     let mut files = BTreeMap::new();
@@ -702,7 +751,7 @@ fn a_stopped_task_cancels_its_download() {
     const CHUNK: usize = 64 << 10;
     let mut image = alloc::vec![0u8; SIZE];
     image[..4].copy_from_slice(b"\x7fELF");
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     let sys = KernSys::new(k.client(), 4);
     let mut files = BTreeMap::new();
     files.insert(String::from("http://images/web.elf"), image);
@@ -812,8 +861,7 @@ fn the_key_wins_over_insecure_and_secrets_stay_out_of_debug() {
     env.insert("HOPOS_INIT_JOBS", r#"[{"name":"a"}]"#);
     env.insert("HOPOS_CORES", "1");
     env.insert("HOPOS_MEMORY", "268435456");
-    let c =
-        BootConfig::from_env(|k| env.get(k).map(|v| String::from(*v)), 1, "10.100.0.1").unwrap();
+    let c = BootConfig::from_env(|k| env.get(k).map(|v| String::from(*v)), 1, &slot_ip(1)).unwrap();
     assert!(!c.insecure && c.insecure_ignored);
     assert_eq!(c.api_key, b"s3cr3t-api-key");
     let s3 = c.s3.clone().unwrap();
@@ -1104,7 +1152,7 @@ const SECOND: u64 = types::time::SECOND;
 
 /// Een node met web geplaatst in slot 1, en een nieuw image van Hop op de server.
 fn placed_for_a_restart() -> (TestNode, FakeKern) {
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     let sys = KernSys::new(k.client(), 4);
     let mut n = Node::new(&cfg(), sys, MemImages::new(restart_images()), T0);
     http(&mut n, Port::Leader, wire("POST", "/v1/jobs", JOB));
@@ -1285,7 +1333,7 @@ fn an_unreadable_state_stops_hop_before_the_sweep() {
     let f = restore(&mut next_hop(&k), &k, T0).unwrap_err();
     assert!(f.why.contains("the leader's state"), "{f:?}");
     // Niets: een schone start.
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     assert_eq!(restore(&mut next_hop(&k), &k, T0), Ok(Kept::Clean));
 }
 
@@ -1630,7 +1678,7 @@ fn a_silent_kernel_after_the_start_stops_hop() {
 #[test]
 fn a_kernel_that_refuses_set_clock_stops_hop() {
     use crate::sntp::apply;
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     k.0.borrow_mut().clock_refused = true;
     let mut sys = KernSys::new(k.client(), 1);
     // De kern mag hem nooit weigeren.
@@ -1641,7 +1689,7 @@ fn a_kernel_that_refuses_set_clock_stops_hop() {
 #[test]
 fn a_silent_kernel_on_set_clock_stops_hop() {
     use crate::sntp::apply;
-    let k = FakeKern::new(4);
+    let k = FakeKern::new();
     let mut sys = KernSys::new(k.client(), 1);
     // Geen antwoord (de client herhaalt één keer, dus twee calls weg): bij
     // de start en daarna hetzelfde, een fout (besluit H1).

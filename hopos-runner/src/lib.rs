@@ -59,6 +59,10 @@ mod store;
 
 use runner::{Slot, SlotApp, SlotState, SlotStatus, StartSpec, Streamed, SysError, SystemApi};
 
+/// Zoveel slots vraagt één `SLOTS` hoogstens (het bytebudget `n`): een
+/// stuk, zoals `getdents`; de veger vraagt verder na het laatste.
+const SLOTS_PAGE: usize = 256;
+
 /// Hoe groot een foutreden van de kern bij een stroom mag zijn; langer
 /// wordt een protocolfout (de client weigert een te lang antwoord).
 const REASON_MAX: usize = 512;
@@ -458,6 +462,26 @@ impl<C: Call> SystemApi for KernSys<C> {
         s.cpu_pct = self.cpu_pct(slot, &i);
         self.last.insert(slot, s.clone());
         Ok(s)
+    }
+
+    async fn occupied(&mut self, after: Slot) -> Result<Vec<Slot>, SysError> {
+        let mut buf = [0u8; SLOTS_PAGE * systemapi::SLOT_LEN];
+        let (_, n) = self
+            .plain(
+                PrivOp::Slots,
+                u64::from(after.0),
+                buf.len() as u64,
+                &mut buf,
+            )
+            .await
+            .map_err(|e| sys_error(&e))?;
+        Ok(buf
+            .get(..n)
+            .unwrap_or_default()
+            .chunks_exact(systemapi::SLOT_LEN)
+            .filter_map(|c| <[u8; 2]>::try_from(c).ok())
+            .map(|b| Slot(u32::from(u16::from_le_bytes(b))))
+            .collect())
     }
 
     async fn next_log_line(&mut self, buf: &mut [u8]) -> Result<Option<usize>, SysError> {

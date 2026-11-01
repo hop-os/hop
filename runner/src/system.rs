@@ -8,6 +8,7 @@
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::fmt;
 use core::future::Future;
 
@@ -30,7 +31,9 @@ pub enum StoreNext {
     Quiet,
 }
 
-/// Een kooi op de node (een slot-index, 1 of hoger); geen core-nummer.
+/// Een kooi op de node: het nummer dat de kern uitdeelt (1 of hoger, het
+/// laagste vrije, zonder vast maximum; op de draad zestien bits); geen
+/// core-nummer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Slot(pub u32);
 
@@ -274,6 +277,12 @@ pub trait SystemApi {
     /// fout gaat naar boven, en de aanroeper beslist: op HopOS is hij hard,
     /// bij de start en daarna (besluit H1).
     fn slot_status(&mut self, slot: Slot) -> impl Future<Output = Result<SlotStatus, SysError>>;
+
+    /// `SLOTS`: de bezette slots na `after` (een bewoner of een stroom, ook
+    /// dat van Hop zelf), oplopend, één stuk; leeg is: na `after` geen meer.
+    /// Er is geen maximum aantal slots, dus wie ze allemaal wil, vraagt
+    /// verder na het laatste dat hij kreeg (zoals `getdents`).
+    fn occupied(&mut self, after: Slot) -> impl Future<Output = Result<Vec<Slot>, SysError>>;
 
     /// `NEXT_LOG`: de volgende regel van de console van de kern in `buf`,
     /// zonder regeleinde.

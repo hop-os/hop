@@ -52,8 +52,10 @@ nooit in deze repo, en de app zet het nooit in een logregel.
 
 De dienst in een regel is `http://host[:poort][/voorvoegsel]` (de host een
 IPv4-adres of een naam via `DNS`), of `http_status:<code>`. Een dienst in een
-ander slot op dezelfde node is `http://10.100.0.<slot+1>:<poort>`; een dienst
-op het LAN zijn eigen adres.
+ander slot op dezelfde node is `http://<slot-adres>:<poort>`, met het adres van
+dat slot op het slot-LAN (een /16: slot `i` is 10.100.0.1 + `i`, dus slot 2 is
+`10.100.0.3` en slot 300 `10.100.1.45`; het slot staat in `HOP_JOB_PLACED
+slot=N`); een dienst op het LAN zijn eigen adres.
 
 ## Markers
 
