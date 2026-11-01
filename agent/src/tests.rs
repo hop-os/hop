@@ -1313,9 +1313,10 @@ fn handoff_round_trip() {
     j.command = String::new();
     let id = a.run(T0, j, false, None).unwrap();
     a.on_started(T0, &id, Driver::Hop, ok(3));
-    let blob = a.snapshot(Some("{\"jobs\":[]}")).unwrap();
+    let blob = a.snapshot(Some("{\"jobs\":[]}"), true).unwrap();
     let h = Handoff::parse(blob.as_bytes()).unwrap().unwrap();
     assert_eq!(h.leader.as_deref(), Some("{\"jobs\":[]}"));
+    assert!(h.clock, "the clock travels along");
     assert_eq!(h.tasks.len(), 1);
     assert_eq!((h.tasks[0].id.as_str(), h.tasks[0].pid), (id.as_str(), 3));
     let mut b = hop_agent();
@@ -1325,15 +1326,13 @@ fn handoff_round_trip() {
     // De reservering reist mee, en de leader telt hem als geplaatst.
     assert_eq!(b.resource_usage(), a.resource_usage());
     assert_eq!(b.placed_task_counts().get("app"), Some(&1));
-    // Zonder leader geen veld.
-    let bare = a.snapshot(None).unwrap();
-    assert!(
-        Handoff::parse(bare.as_bytes())
-            .unwrap()
-            .unwrap()
-            .leader
-            .is_none()
-    );
+    // Zonder leader geen veld; zonder klok nee, en een blob zonder het veld ook.
+    let bare = a.snapshot(None, false).unwrap();
+    let h = Handoff::parse(bare.as_bytes()).unwrap().unwrap();
+    assert!(h.leader.is_none() && !h.clock);
+    let old = bare.replace(",\"clock\":false", "");
+    assert!(!old.contains("clock"), "{old}");
+    assert!(!Handoff::parse(old.as_bytes()).unwrap().unwrap().clock);
 }
 
 #[test]
@@ -1376,7 +1375,7 @@ fn state_survives_restart_via_store() {
     let mut a = agent();
     run_ok(&mut a, T0, job("keep"));
     let mut store = MemStore::default();
-    let n = ready(a.save_to(&mut store, None)).unwrap();
+    let n = ready(a.save_to(&mut store, None, false)).unwrap();
     assert_eq!(store.0.as_ref().map(Vec::len), Some(n));
     let blob = ready(store.load()).unwrap().unwrap();
     let h = Handoff::parse(&blob).unwrap().unwrap();

@@ -62,6 +62,7 @@ use crate::download::{Order, Piece};
 use crate::env::{BootConfig, ColdFlip};
 use crate::forward::{Forward, Routed};
 use crate::local::Local;
+use crate::sntp::{ClockStep, Sample};
 use crate::{EXIT_INTERN, EXIT_KERNEL, Fatal, VERSION};
 
 mod cluster;
@@ -226,6 +227,9 @@ pub struct Node<S, I> {
     /// De kern nam een herstart aan: deze Hop vertrekt zodra zijn antwoord
     /// de deur uit is ([`Node::take_leaving`], `crate::restart`).
     leaving: bool,
+    /// De klok van de kern staat: gezet door deze Hop ([`Node::set_clock`])
+    /// of door de vorige (de staat bij de kern, [`Node::restore`]).
+    clock: bool,
 }
 
 impl<S: SystemApi + Store, I: Images> Node<S, I> {
@@ -304,6 +308,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             loads: VecDeque::new(),
             next_seq: 1,
             leaving: false,
+            clock: false,
         }
     }
 
@@ -473,6 +478,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             Err(e) => return Err(unreadable(format!("{} bytes: {e}", blob.len()))),
         };
         drop(blob);
+        self.clock = h.clock;
         let n = self.adopt(now, h).await.map_err(unreadable)?;
         Ok(Kept::Adopted(n))
     }
@@ -543,9 +549,26 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             None
         };
         self.agent
-            .save_to(self.runner.system_mut(), leader.as_deref())
+            .save_to(self.runner.system_mut(), leader.as_deref(), self.clock)
             .await
             .map_err(|e| format!("{e}"))
+    }
+
+    /// Zet de klok van de kern uit een meting (`SET_CLOCK`, zie
+    /// [`crate::sntp::apply`]) en onthoudt dat hij staat: dat gaat mee in de
+    /// staat, zodat een herstarte Hop de klok van de kern vertrouwt in plaats
+    /// van eerst zelf te meten (besluit H5, 01-11).
+    pub async fn set_clock(&mut self, sample: &Sample, now: u64, started: bool) -> ClockStep {
+        let step = crate::sntp::apply(self.runner.system_mut(), sample, now, started).await;
+        if matches!(step, ClockStep::Synced(_)) {
+            self.clock = true;
+        }
+        step
+    }
+
+    /// Of de klok van de kern staat (zie [`Node::set_clock`]).
+    pub fn clock(&self) -> bool {
+        self.clock
     }
 
     /// De kern luidde de stop-bel (een stop van het slot, of een herstart

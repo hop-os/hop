@@ -430,8 +430,7 @@ async fn set_clock<S, I>(
     S: runner::SystemApi + agent::Store,
     I: Images,
 {
-    let sys = node.runner_mut().system_mut();
-    match sntp::apply(sys, sample, exec.now(), started).await {
+    match node.set_clock(sample, exec.now(), started).await {
         sntp::ClockStep::Synced(unix_ns) => {
             CLOCK_SYNCED.store(true, Relaxed);
             say!(
@@ -1043,17 +1042,29 @@ async fn resident(app: &'static App) {
     // artifact over https vertrouwt pas een gezette klok (F8), en een lease is
     // een tijd op de wandklok. De tijdserver: `HOPOS_NTP` (`host` of
     // `host:poort`), anders pool.ntp.org.
+    //
+    // Na een herstart zette de vorige Hop de klok al (de staat zegt het): die
+    // vertrouwt deze Hop, en hij meet pas over een uur zelf (besluit H5,
+    // 01-11). Een herstart hangt zo niet af van een server buiten het LAN.
     let (ntp_host, ntp_port) = sntp::server_from(app.env(sntp::ENV_NTP));
-    let next_sync = match measure(net, exec, &ntp_host, ntp_port, &mut 0).await {
-        Ok(sample) => {
-            set_clock(app, exec, &mut node, &sample, &ntp_host, false).await;
-            NTP_EVERY
-        }
-        Err(e) => {
-            say!(
-                "hop: SNTP {ntp_host}:{ntp_port} failed: {e}; the wall clock is not synced, https and the cluster wait for it HOP_SNTP_FAIL"
-            );
-            NTP_RETRY
+    let next_sync = if node.clock() {
+        CLOCK_SYNCED.store(true, Relaxed);
+        say!(
+            "hop: the previous Hop set the kernel's clock; trusting it HOP_CLOCK_SYNCED from=state"
+        );
+        NTP_EVERY
+    } else {
+        match measure(net, exec, &ntp_host, ntp_port, &mut 0).await {
+            Ok(sample) => {
+                set_clock(app, exec, &mut node, &sample, &ntp_host, false).await;
+                NTP_EVERY
+            }
+            Err(e) => {
+                say!(
+                    "hop: SNTP {ntp_host}:{ntp_port} failed: {e}; the wall clock is not synced, https and the cluster wait for it HOP_SNTP_FAIL"
+                );
+                NTP_RETRY
+            }
         }
     };
     let clock = clock_task(net, exec, ntp_host.clone(), ntp_port, next_sync);

@@ -1506,7 +1506,7 @@ fn kernel_with_welcome() -> FakeKern {
     };
     let mut prev = agent::Agent::new(agent::Settings::default());
     prev.adopt(alloc::vec![job], alloc::vec![task]);
-    k.0.borrow_mut().state = prev.snapshot(None).unwrap().into_bytes();
+    k.0.borrow_mut().state = prev.snapshot(None, false).unwrap().into_bytes();
     k
 }
 

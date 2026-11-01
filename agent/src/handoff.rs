@@ -22,9 +22,10 @@
 //! gaat NIET mee: dat is de leeftijd van de laatste synchronisatie van déze
 //! agent, en een geërfde tijdstempel liet de volgende denken dat hij al bij is.
 //!
-//! Wat de agent niet bezit, reist als tekst mee die hij niet leest
-//! ([`Handoff::leader`]): op een standalone node de gecommitte staat van de
-//! leader in hetzelfde proces, die anders met Hop zou sterven.
+//! Wat de agent niet bezit, reist mee zonder dat hij het leest: op een
+//! standalone node de gecommitte staat van de leader in hetzelfde proces,
+//! die anders met Hop zou sterven ([`Handoff::leader`]), en of de klok van
+//! de kern staat ([`Handoff::clock`]).
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -106,6 +107,10 @@ pub struct Handoff {
     /// Wat de node naast de agent meegaf (op HopOS standalone: de snapshot
     /// van de leader); de agent leest het niet.
     pub leader: Option<String>,
+    /// De vorige Hop zette de klok van de kern (SNTP): de volgende
+    /// vertrouwt hem en wacht niet op een eigen meting (besluit H5, 01-11).
+    /// Een blob zonder het veld zegt nee.
+    pub clock: bool,
 }
 
 impl Handoff {
@@ -139,16 +144,17 @@ impl Handoff {
             Some(l) if !l.is_null() => Some(types::de::string(l, "leader")?),
             _ => None,
         };
+        h.clock = obj.get("clock").and_then(Value::as_bool) == Some(true);
         Ok(Some(h))
     }
 }
 
 impl Agent {
-    /// De staat als JSON-blob, met `leader` als tekst erbij.
+    /// De staat als JSON-blob, met `leader` als tekst en `clock` erbij.
     ///
     /// Roep hem zo LAAT mogelijk aan vóór de herstart: wat erna nog bijkomt,
     /// kent de volgende agent niet.
-    pub fn snapshot(&self, leader: Option<&str>) -> Result<String> {
+    pub fn snapshot(&self, leader: Option<&str>, clock: bool) -> Result<String> {
         let mut jobs = ObjectBuilder::new();
         for (name, job) in self.jobs_map() {
             jobs.field(name, job.to_value()?)?;
@@ -164,6 +170,7 @@ impl Agent {
         if let Some(l) = leader {
             o.field("leader", Value::String(types::try_string(l)?))?;
         }
+        o.field("clock", Value::Bool(clock))?;
         Ok(json::to_string(&o.build())?)
     }
 
@@ -177,9 +184,14 @@ impl Agent {
         self.restore_entries(jobs, tasks);
     }
 
-    /// Schrijft de staat weg in `store`, met `leader` erbij.
-    pub async fn save_to<S: Store>(&self, store: &mut S, leader: Option<&str>) -> Result<usize> {
-        let blob = self.snapshot(leader)?;
+    /// Schrijft de staat weg in `store`, met `leader` en `clock` erbij.
+    pub async fn save_to<S: Store>(
+        &self,
+        store: &mut S,
+        leader: Option<&str>,
+        clock: bool,
+    ) -> Result<usize> {
+        let blob = self.snapshot(leader, clock)?;
         store.save(blob.as_bytes()).await.map_err(Error::Store)?;
         Ok(blob.len())
     }

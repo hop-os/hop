@@ -1800,6 +1800,30 @@ fn a_silent_kernel_at_the_start_set_clock_stops_hop_later_not() {
 }
 
 #[test]
+fn a_restarted_hop_trusts_the_clock_its_predecessor_set() {
+    // Zonder meting staat de klok niet, ook niet voor de volgende.
+    let (mut n, k) = placed_for_a_restart();
+    block_on(n.on_stop(T0 + SECOND));
+    let mut again = next_hop(&k);
+    block_on(again.restore(T0 + 2 * SECOND)).unwrap();
+    assert!(!again.clock());
+    // Na een gelukte SET_CLOCK reist het mee in de staat.
+    let step = block_on(again.set_clock(&sample(), 2_000, false));
+    assert!(
+        matches!(step, crate::sntp::ClockStep::Synced(_)),
+        "{step:?}"
+    );
+    assert!(again.clock());
+    block_on(again.on_stop(T0 + 3 * SECOND));
+    let mut third = next_hop(&k);
+    block_on(third.restore(T0 + 4 * SECOND)).unwrap();
+    assert!(
+        third.clock(),
+        "the kernel's clock is trusted, no SNTP first"
+    );
+}
+
+#[test]
 fn a_silent_kernel_at_the_restore_stops_hop_before_the_sweep() {
     let (mut n, k) = placed_for_a_restart();
     block_on(n.on_stop(T0 + SECOND));
