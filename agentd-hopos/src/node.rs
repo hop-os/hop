@@ -109,14 +109,6 @@ const COLD_FLIP_WAIT: Nanos = 30 * SECOND;
 /// krijgt op dit ritme ook zijn tweede kans (een flip naar een nieuwe kern).
 pub(crate) const STATE_REFRESH: Nanos = 10 * SECOND;
 
-/// De exitcode van een Hop die stopt omdat de kern bij de start niet
-/// antwoordde of iets weigerde wat hij nooit weigert (`HOP_KERNEL_GONE`):
-/// geen 0, dus de kern laat hem liggen (`HOPOS_HOP_EXIT`) en de watchdog
-/// reset de node. Geen herhaallus: de kern plaatst een nieuwe Hop pas als
-/// de oude weg is en geeft hem vanaf zijn eerste instructie zijn
-/// verbindingen (HopOS v3.0.19, fb81b13).
-pub const EXIT_KERNEL: u64 = 3;
-
 /// Wat [`Node::restore`] bij de start aantrof.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kept {
@@ -132,7 +124,7 @@ pub enum Kept {
     /// opslagfout).
     Unreadable,
     /// De kern antwoordde niet op STATE_GET (de verbinding, geen weigering):
-    /// een harde fout. De binary stopt Hop met [`EXIT_KERNEL`]; leeg
+    /// een harde fout. De binary stopt Hop met [`crate::EXIT_KERNEL`]; leeg
     /// beginnen zou de veger elke app laten stoppen omdat de kern even
     /// zweeg. De watchdog reset de node, en de koude boot begint schoon.
     Unreachable,

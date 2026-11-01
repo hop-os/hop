@@ -69,7 +69,23 @@ pub use env::{BootConfig, BootError};
 pub use fetch::{Connect, HttpImages, Resolve};
 pub use handoff::Handoff;
 pub use hub::{Answer, Hub, Question};
-pub use node::{Cluster, ClusterParts, EXIT_KERNEL, Images, Kept, Node, Port, Sink};
+pub use node::{Cluster, ClusterParts, Images, Kept, Node, Port, Sink};
+
+// De exitcodes van een Hop die hard stopt, per soort (besluit H9, 01-11). De
+// kern laat elke exit die hij niet vroeg liggen, welke code ook
+// (`HOPOS_HOP_EXIT`), en de watchdog reset de node; de code is er voor de
+// diagnose. Ze horen in `abi` van HopOS en gaan daarheen zodra Hop tegen een
+// tag bouwt die ze heeft; tot dan staan ze hier, op één plek, met dezelfde
+// waarden. 0 is geen val (een herstart of de stop-bel), 1 is applib (een
+// spawn in de main-schil), 2 een paniek.
+
+/// De kern antwoordde niet, of weigerde wat hij nooit weigert.
+pub const EXIT_KERNEL: u64 = 3;
+/// De config van de node klopt niet (de env van het slot, de init-jobs).
+pub const EXIT_CONFIG: u64 = 4;
+/// Hop zelf: een taak die niet spawnt, een poort die niet bindt, een staat
+/// die hij niet kan lezen.
+pub const EXIT_INTERN: u64 = 5;
 
 /// De versie die de agent aan de leader meldt.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
