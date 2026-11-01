@@ -395,6 +395,7 @@ fn boot_cfg() -> BootConfig {
             ("HOPOS_NODE_IP", "10.0.0.5"),
             ("HOPOS_CORES", "4"),
             ("HOPOS_MEMORY", "1073741824"),
+            ("HOPOS_COLD_FLIP", "yes"),
         ]),
         2,
         "10.100.0.2",
@@ -736,20 +737,19 @@ fn said(n: &mut TestNode, marker: &str) -> bool {
 }
 
 /// Een nagebootste LicheeRV (Hop op de enige app-core, dus `HOPOS_CORES=0`)
-/// mét en zonder de OS-core van de kern als `system`; een leader op een
-/// andere node stuurt `POST /run`. Geeft per job de status, en de regels.
-fn run_on_licheerv(system: bool, jobs: &[&str]) -> (Vec<u16>, Vec<String>) {
-    let mut pairs = alloc::vec![
+/// met de OS-core van de kern als `system`; een leader op een andere node
+/// stuurt `POST /run`. Geeft per job de status, en de regels.
+fn run_on_licheerv(jobs: &[&str]) -> (Vec<u16>, Vec<String>) {
+    let pairs = [
         ("HOPOS_APIKEY", "test-key"),
         ("HOPOS_NODE", "lichee"),
         ("HOPOS_CORES", "0"),
         ("HOPOS_MEMORY", "268435456"),
+        ("HOPOS_COLD_FLIP", "no"),
+        ("HOPOS_SYSTEM_CORE", "1"),
     ];
-    if system {
-        pairs.push(("HOPOS_SYSTEM_CORE", "1"));
-    }
     let cfg = BootConfig::from_env(env(&pairs), 2, "10.100.0.2").unwrap();
-    assert_eq!((cfg.cores, cfg.system_core), (u32::from(!system), system));
+    assert_eq!((cfg.cores, cfg.system_core), (0, true));
     let (mut n, _q) = clustered_as(&FakeKern::new(4), &cfg, || true);
     let codes = jobs
         .iter()
@@ -770,7 +770,7 @@ const WIDE_JOB: &str = r#"{"name":"wide","driver":"hop","artifacts":[{"url":"htt
 #[test]
 fn a_system_core_places_what_has_no_core_of_its_own() {
     let jobs = [WELCOME, SECOND_JOB, SYSTEM_JOB, HOP_JOB, WIDE_JOB, WIDE_JOB];
-    let (codes, lines) = run_on_licheerv(true, &jobs);
+    let (codes, lines) = run_on_licheerv(&jobs);
     assert_eq!(codes, [202, 202, 202, 202, 503, 503]);
     let refused: Vec<&String> = lines
         .iter()
@@ -781,17 +781,6 @@ fn a_system_core_places_what_has_no_core_of_its_own() {
         refused[0].contains("job wide refused here: no capacity (cpu;"),
         "{refused:?}"
     );
-}
-
-#[test]
-fn without_a_system_core_one_core_is_all_there_is() {
-    // Een oude kern: HOPOS_CORES=0 wordt 1, `system` is een gewone groep,
-    // `hop` past altijd (Hop's eigen core).
-    let jobs = [WELCOME, SECOND_JOB, SYSTEM_JOB, HOP_JOB];
-    let (codes, lines) = run_on_licheerv(false, &jobs);
-    assert_eq!(codes, [202, 503, 503, 202]);
-    let refused = lines.iter().filter(|l| l.contains("HOP_NO_CAPACITY"));
-    assert_eq!(refused.count(), 2, "{lines:?}");
 }
 
 #[test]

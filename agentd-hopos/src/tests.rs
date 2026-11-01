@@ -80,6 +80,7 @@ fn cfg_with(extra: &[(&'static str, &'static str)]) -> BootConfig {
     env.insert("HOPOS_NODE_IP", "10.0.0.5");
     env.insert("HOPOS_CORES", "4");
     env.insert("HOPOS_MEMORY", "1073741824");
+    env.insert("HOPOS_COLD_FLIP", "yes");
     env.extend(extra.iter().copied());
     BootConfig::from_env(|k| env.get(k).map(|v| String::from(*v)), 2, "10.100.0.2").unwrap()
 }
@@ -593,17 +594,32 @@ fn boot_config_fails_closed_without_a_key() {
         BootConfig::from_env(none, 3, "10.100.0.3"),
         Err(BootError::NoKey)
     );
-    let insecure = |k: &str| (k == "HOPOS_INSECURE").then(|| String::from("1"));
+    let insecure = |k: &str| {
+        let v = match k {
+            "HOPOS_INSECURE" => "1",
+            "HOPOS_CORES" => "2",
+            "HOPOS_COLD_FLIP" => "yes",
+            "HOPOS_MEMORY" => "1073741824",
+            _ => return None,
+        };
+        Some(String::from(v))
+    };
     let c = BootConfig::from_env(insecure, 3, "10.100.0.3").unwrap();
     assert!(c.insecure && c.api_key.is_empty());
     assert_eq!(c.node_id, "hopos-3");
     assert_eq!((c.port, c.leader_port()), (8080, 9080));
     assert_eq!(c.node_ip, "10.100.0.3");
-    assert!(c.memory_defaulted);
+    // Wat de kern altijd geeft, heeft geen standaard: zonder is de config fout.
+    for var in ["HOPOS_CORES", "HOPOS_COLD_FLIP", "HOPOS_MEMORY"] {
+        let without = |k: &str| (k != var).then(|| insecure(k)).flatten();
+        assert_eq!(
+            BootConfig::from_env(without, 3, "x"),
+            Err(BootError::Missing(var))
+        );
+    }
     let bad = |k: &str| match k {
-        "HOPOS_INSECURE" => Some(String::from("1")),
         "HOPOS_CORES" => Some(String::from("many")),
-        _ => None,
+        _ => insecure(k),
     };
     assert!(matches!(
         BootConfig::from_env(bad, 3, "x"),
@@ -617,48 +633,52 @@ fn boot_config_fails_closed_without_a_key() {
 
 #[test]
 fn the_system_core_comes_from_the_env() {
-    let with = |pairs: &[(&str, &'static str)]| {
+    let base = [
+        ("HOPOS_INSECURE", "1"),
+        ("HOPOS_MEMORY", "1073741824"),
+        ("HOPOS_COLD_FLIP", "yes"),
+    ];
+    let conf = |pairs: &[(&str, &'static str)]| {
         let get = |k: &str| {
             pairs
                 .iter()
+                .chain(base.iter())
                 .find(|(n, _)| *n == k)
                 .map(|(_, v)| String::from(*v))
         };
-        let c = BootConfig::from_env(get, 2, "x").unwrap();
+        BootConfig::from_env(get, 2, "x")
+    };
+    let with = |pairs: &[(&str, &'static str)]| {
+        let c = conf(pairs).unwrap();
         (c.cores, c.system_core)
     };
-    let open = ("HOPOS_INSECURE", "1");
     // De kern zegt het: 0 eigen cores is dan de waarheid.
     assert_eq!(
-        with(&[open, ("HOPOS_CORES", "0"), ("HOPOS_SYSTEM_CORE", "1")]),
+        with(&[("HOPOS_CORES", "0"), ("HOPOS_SYSTEM_CORE", "1")]),
         (0, true)
     );
     assert_eq!(
-        with(&[open, ("HOPOS_CORES", "2"), ("HOPOS_SYSTEM_CORE", "1")]),
+        with(&[("HOPOS_CORES", "2"), ("HOPOS_SYSTEM_CORE", "1")]),
         (2, true)
     );
-    // Een oude kern: geen system-core, en minstens één core zoals altijd.
-    assert_eq!(with(&[open, ("HOPOS_CORES", "0")]), (1, false));
-    // Het board-contract van de koude flip; zonder sleutel `yes`.
-    let cold = |v: Option<&'static str>| {
-        let mut pairs = Vec::from([open]);
-        pairs.extend(v.map(|v| ("HOPOS_COLD_FLIP", v)));
-        let get = |k: &str| {
-            pairs
-                .iter()
-                .find(|(n, _)| *n == k)
-                .map(|(_, v)| String::from(*v))
-        };
-        BootConfig::from_env(get, 2, "x").unwrap().cold_flip
-    };
-    assert_eq!(cold(None), ColdFlip::Yes);
-    assert_eq!(cold(Some("yes")), ColdFlip::Yes);
-    assert_eq!(cold(Some("no")), ColdFlip::No);
-    assert_eq!(cold(Some("fresh")), ColdFlip::Fresh);
+    // Ook zonder system-core telt wat de kern zegt.
+    assert_eq!(with(&[("HOPOS_CORES", "0")]), (0, false));
     assert_eq!(
-        with(&[open, ("HOPOS_CORES", "3"), ("HOPOS_SYSTEM_CORE", "0")]),
+        with(&[("HOPOS_CORES", "3"), ("HOPOS_SYSTEM_CORE", "0")]),
         (3, false)
     );
+    // Het board-contract van de koude flip; iets anders is een fout.
+    let cold = |v: &'static str| conf(&[("HOPOS_CORES", "1"), ("HOPOS_COLD_FLIP", v)]);
+    assert_eq!(cold("yes").unwrap().cold_flip, ColdFlip::Yes);
+    assert_eq!(cold("no").unwrap().cold_flip, ColdFlip::No);
+    assert_eq!(cold("fresh").unwrap().cold_flip, ColdFlip::Fresh);
+    assert!(matches!(
+        cold("maybe"),
+        Err(BootError::Bad {
+            var: "HOPOS_COLD_FLIP",
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -690,8 +710,6 @@ fn block_on_ready<F: Future>(f: F) -> bool {
 #[test]
 fn a_fresh_resident_stops_what_the_kernel_still_runs() {
     let (mut n, k) = node();
-    // Een kern zonder de staat-ops (v3.0.14): er is niets over te nemen.
-    k.0.borrow_mut().no_state_ops = true;
     // Slot 1 is Hop zelf; de veger blijft daar vanaf.
     k.0.borrow_mut().slots.insert(
         1,
@@ -703,12 +721,12 @@ fn a_fresh_resident_stops_what_the_kernel_still_runs() {
     http(&mut n, Port::Leader, wire("POST", "/v1/jobs", JOB));
     tick(&mut n, T0 + types::time::SECOND);
     assert_eq!(k.0.borrow().slots.len(), 2);
-    // Een nieuwe Hop over dezelfde kern kent niets: de kern hield geen
-    // staat, dus de bewoner in slot 2 is van niemand en gaat weg.
+    // Een nieuwe Hop over dezelfde kern zonder staat (een koude boot): de
+    // bewoner in slot 2 is van niemand en gaat weg.
+    k.0.borrow_mut().state.clear();
     let sys = KernSys::new(k.client(), 4);
     let mut again = Node::new(&cfg(), sys, MemImages::new(BTreeMap::new()), T0);
-    assert_eq!(block_on(again.restore(T0)), Ok(Kept::Unsupported));
-    assert!(Kept::Unsupported.is_clean(), "the init jobs seed as before");
+    assert_eq!(block_on(again.restore(T0)), Ok(Kept::Clean));
     block_on(again.sweep_strays());
     assert_eq!(k.0.borrow().slots.keys().copied().collect::<Vec<_>>(), [1]);
     assert!(
@@ -968,6 +986,9 @@ fn the_key_wins_over_insecure_and_secrets_stay_out_of_debug() {
     env.insert("HOPOS_S3_SECRET", "very-secret-value");
     env.insert("HOPOS_S3_PATHSTYLE", "1");
     env.insert("HOPOS_INIT_JOBS", r#"[{"name":"a"}]"#);
+    env.insert("HOPOS_CORES", "1");
+    env.insert("HOPOS_MEMORY", "268435456");
+    env.insert("HOPOS_COLD_FLIP", "yes");
     let c =
         BootConfig::from_env(|k| env.get(k).map(|v| String::from(*v)), 1, "10.100.0.1").unwrap();
     assert!(!c.insecure && c.insecure_ignored);
@@ -1428,53 +1449,6 @@ fn an_unreadable_state_stops_hop_before_the_sweep() {
 }
 
 #[test]
-fn an_older_kernel_keeps_no_state_and_refuses_a_restart() {
-    let (mut n, k) = placed_for_a_restart();
-    k.0.borrow_mut().no_state_ops = true;
-    k.0.borrow_mut().restart_ok = true;
-    tick(&mut n, T0 + SECOND);
-    let lines = n.take_lines();
-    let none: Vec<&String> = lines
-        .iter()
-        .filter(|l| l.contains("HOP_KERNEL_STATE_NONE"))
-        .collect();
-    assert_eq!(none.len(), 1, "{lines:?}");
-    // Niet elke tik opnieuw: alleen op het ritme.
-    let calls = |k: &FakeKern| {
-        k.0.borrow()
-            .ops
-            .iter()
-            .filter(|&&o| o == PrivOp::StatePut.op())
-            .count()
-    };
-    let before = calls(&k);
-    for s in 2..9 {
-        tick(&mut n, T0 + s * SECOND);
-    }
-    assert_eq!(calls(&k), before, "no put per tick on an older kernel");
-    // Een herstart zonder staat zou elke app stoppen: 502, en Hop draait door.
-    let (status, body) = http(&mut n, Port::Agent, wire("POST", "/restart", ""));
-    assert_eq!(status, 502, "{body}");
-    assert!(body.contains("keeps no state"), "{body}");
-    let lines = n.take_lines();
-    assert!(
-        lines
-            .iter()
-            .any(|l| l == "hop: restart of Hop requested (same image) HOP_RESTART"),
-        "{lines:?}"
-    );
-    assert!(
-        lines.iter().any(|l| l.contains("HOP_RESTART_FAIL")),
-        "{lines:?}"
-    );
-    assert!(
-        !k.0.borrow().ops.contains(&PrivOp::HopRestart.op()),
-        "no HOP_RESTART asked"
-    );
-    assert!(k.0.borrow().restarts.is_empty());
-}
-
-#[test]
 fn the_stop_bell_hands_the_last_state_to_the_kernel() {
     let (mut n, k) = placed_for_a_restart();
     // Geen tik sinds de plaatsing: alleen de stop-bel legt hem nog neer.
@@ -1760,43 +1734,6 @@ fn the_kernel_log_reaches_kern_on_the_agent_and_through_the_leader() {
         ("data: HOPOS_TICK 2\n\n", false)
     );
     n.stream_done();
-}
-
-#[test]
-fn an_older_kernel_without_its_own_log_says_so_once() {
-    let (mut n, k) = node();
-    k.0.borrow_mut().no_kern_logs = true;
-    for s in 1..=10 {
-        tick(&mut n, T0 + s * SECOND);
-    }
-    let lines = n.take_lines();
-    let none: Vec<&String> = lines
-        .iter()
-        .filter(|l| l.contains("HOP_KERN_LOG_NONE"))
-        .collect();
-    assert_eq!(none.len(), 1, "{lines:?}");
-    // Eén vraag naar slot 0 in tien tikken: daarna pas na een minuut.
-    let asked =
-        k.0.borrow()
-            .frames
-            .iter()
-            .filter_map(|f| {
-                abi::hopabi::decode_req(&f[abi::systemapi::HEADER_LEN..])
-                    .ok()
-                    .map(|r| (r.op, r.off))
-            })
-            .filter(|&(op, off)| op == PrivOp::NextLog.op() && off == 0)
-            .count();
-    assert_eq!(asked, 1);
-    // Een flip naar een nieuwe kern: na de minuut komen de regels, met één regel.
-    k.0.borrow_mut().no_kern_logs = false;
-    k.0.borrow_mut()
-        .kern_logs
-        .push_back(b"HOPOS_FLIP_SETTLED".to_vec());
-    tick(&mut n, T0 + 70 * SECOND);
-    assert!(n.take_lines().iter().any(|l| l.contains("HOP_KERN_LOG_ON")));
-    let (_, body) = http(&mut n, Port::Agent, wire("GET", "/logs/kern/stdout", ""));
-    assert!(body.contains("HOPOS_FLIP_SETTLED"), "{body}");
 }
 
 #[test]

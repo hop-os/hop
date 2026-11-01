@@ -857,19 +857,3 @@ fn the_system_tasks_have_their_rings_from_the_start() {
     assert_eq!(t.len(), SYSTEM_LOG_LINES);
     assert_eq!(t.last().map(String::as_str), Some("299"));
 }
-
-#[test]
-fn a_kernel_without_its_own_log_is_asked_again_only_after_a_minute() {
-    // FakeSys heeft de standaard van de trait: een kern zonder eigen log.
-    let mut r = runner(2, &[]);
-    assert!(matches!(
-        bl(r.pump_kern_logs(0)),
-        Some(KernLogNote::Refused(_))
-    ));
-    // De volgende rondes: stil, en geen vraag aan de kern.
-    assert_eq!(bl(r.pump_kern_logs(1_000)), None);
-    assert_eq!(bl(r.pump_kern_logs(KERN_LOG_RETRY_MS - 1)), None);
-    // Na de minuut opnieuw gevraagd, nog steeds geweigerd: geen tweede melding.
-    assert_eq!(bl(r.pump_kern_logs(KERN_LOG_RETRY_MS)), None);
-    assert!(tail(&r, 0, types::KERN_TASK).is_empty());
-}

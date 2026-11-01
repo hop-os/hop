@@ -87,8 +87,7 @@ pub const INIT_JOBS_FILE: &str = "/hop/init-jobs.json";
 /// de kern: HopOS `kern::nodecfg::ColdFlip`)?
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColdFlip {
-    /// `yes`, of de sleutel ontbreekt (een oude kern): vragen, de kern
-    /// weigert zelf als het niet kan.
+    /// `yes`: vragen, de kern weigert zelf als het niet kan.
     Yes,
     /// `no`: nooit (geen PSCI, de M4).
     No,
@@ -98,18 +97,16 @@ pub enum ColdFlip {
 }
 
 impl ColdFlip {
-    /// De waarde uit de env; alles behalve `no` en `fresh` is `yes`.
-    fn parse(v: Option<&str>) -> Self {
+    /// De waarde uit de env.
+    fn parse(v: &str) -> Option<Self> {
         match v {
-            Some("no") => Self::No,
-            Some("fresh") => Self::Fresh,
-            _ => Self::Yes,
+            "yes" => Some(Self::Yes),
+            "no" => Some(Self::No),
+            "fresh" => Some(Self::Fresh),
+            _ => None,
         }
     }
 }
-
-/// Het geheugen waar Hop tegen plant als de kern het niet zegt.
-pub const DEFAULT_MEMORY: u64 = 256 << 20;
 
 /// De S3-instellingen van de cluster.
 #[derive(Clone, PartialEq, Eq)]
@@ -175,12 +172,10 @@ pub struct BootConfig {
     pub system_core: bool,
     /// De sharegroup van Hop zelf (`HOPOS_HOP_GROUP`, standaard `hop`).
     pub hop_group: String,
-    /// Kan het board koud flippen (`HOPOS_COLD_FLIP`, standaard `yes`).
+    /// Kan het board koud flippen (`HOPOS_COLD_FLIP`).
     pub cold_flip: ColdFlip,
     /// Het app-geheugen in bytes.
     pub memory: u64,
-    /// Of `HOPOS_MEMORY` ontbrak (de bewoner meldt dat luid).
-    pub memory_defaulted: bool,
     /// De clusteropslag, als endpoint en bucket er allebei zijn.
     pub s3: Option<S3Config>,
     /// De init-jobs uit de env (de ruwe JSON-array), als ze er zijn.
@@ -203,7 +198,6 @@ impl fmt::Debug for BootConfig {
             .field("hop_group", &self.hop_group)
             .field("cold_flip", &self.cold_flip)
             .field("memory", &self.memory)
-            .field("memory_defaulted", &self.memory_defaulted)
             .field("s3", &self.s3)
             .field("init_jobs", &self.init_jobs.as_ref().map(String::len))
             .finish()
@@ -218,6 +212,8 @@ pub enum BootError {
     /// Fail closed, zoals de Go-kern: een lege sleutel zet de HMAC-toets uit,
     /// en een API op het LAN zonder toets is code-uitvoering voor iedereen.
     NoKey,
+    /// Een variabele die de kern altijd geeft (HopOS v3.0.19 en later), ontbreekt.
+    Missing(&'static str),
     /// Een variabele met een waarde die geen getal of poort is.
     Bad {
         /// De variabele.
@@ -234,6 +230,7 @@ impl fmt::Display for BootError {
                 f,
                 "no {ENV_APIKEY}: the API would accept unauthenticated job dispatch; set {ENV_APIKEY}, or {ENV_INSECURE}=1 on purpose"
             ),
+            BootError::Missing(var) => write!(f, "{var} is not set; the kernel always gives it"),
             BootError::Bad { var, value } => write!(f, "{var}={value:?} is not valid"),
         }
     }
@@ -269,6 +266,18 @@ fn number<T: core::str::FromStr>(
     }
 }
 
+/// Een waarde uit de env die de kern altijd geeft: zonder is de config fout,
+/// geen standaard (besluit H6, 01-11: geen compat voor een oudere kern).
+fn required<T: core::str::FromStr>(
+    get: &impl Fn(&str) -> Option<String>,
+    var: &'static str,
+) -> Result<T, BootError> {
+    let v = get(var).ok_or(BootError::Missing(var))?;
+    v.trim()
+        .parse()
+        .map_err(|_| BootError::Bad { var, value: v })
+}
+
 impl BootConfig {
     /// Leest de config met `get` (de env van het slot); `slot_ip` is het adres als `HOPOS_NODE_IP` ontbreekt.
     pub fn from_env(
@@ -288,15 +297,19 @@ impl BootConfig {
                 value: alloc::format!("{port}"),
             });
         }
-        let memory_raw = get(ENV_MEMORY);
         let system_core = get(ENV_SYSTEM_CORE).as_deref() == Some("1");
         let hop_group = get(ENV_HOP_GROUP)
             .filter(|g| !g.is_empty())
             .unwrap_or_else(|| String::from(agent::HOP_GROUP));
-        // Zonder system-core minstens één core, zoals altijd: een oude kern
-        // gaf nooit 0. Met system-core is 0 de waarheid (de LicheeRV: Hop op
-        // de enige app-core), en plaatst alles via `system`.
-        let cores: u32 = number(&get, ENV_CORES, 1)?;
+        // De eigen app-cores zoals de kern ze zegt; met system-core is 0 de
+        // waarheid (de LicheeRV: Hop op de enige app-core), en plaatst alles
+        // via `system`.
+        let cores: u32 = required(&get, ENV_CORES)?;
+        let cold: String = required(&get, ENV_COLD_FLIP)?;
+        let cold_flip = ColdFlip::parse(&cold).ok_or(BootError::Bad {
+            var: ENV_COLD_FLIP,
+            value: cold,
+        })?;
         Ok(Self {
             node_id: get(ENV_NODE).unwrap_or_else(|| alloc::format!("hopos-{slot}")),
             slot: u32::try_from(slot).unwrap_or(u32::MAX),
@@ -306,12 +319,11 @@ impl BootConfig {
             cluster: get(ENV_CLUSTER).unwrap_or_else(|| String::from("hopos")),
             node_ip: get(ENV_NODE_IP).unwrap_or_else(|| String::from(slot_ip)),
             port,
-            cores: if system_core { cores } else { cores.max(1) },
+            cores,
             system_core,
             hop_group,
-            cold_flip: ColdFlip::parse(get(ENV_COLD_FLIP).as_deref()),
-            memory: number(&get, ENV_MEMORY, DEFAULT_MEMORY)?,
-            memory_defaulted: memory_raw.is_none(),
+            cold_flip,
+            memory: required(&get, ENV_MEMORY)?,
             s3: s3(&get),
             init_jobs: get(ENV_INIT_JOBS).filter(|j| !j.trim().is_empty()),
         })

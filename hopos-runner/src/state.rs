@@ -8,9 +8,9 @@
 //! koude boot begint zonder blob.
 //!
 //! De opnummers en de maat komen uit `abi` ([`PrivOp::StatePut`],
-//! [`PrivOp::StateGet`], [`HOP_STATE_MAX`], HopOS v3.0.16). Een oudere kern
-//! kent de ops niet en antwoordt met een foutstatus: dat is
-//! [`agent::StoreError::Refused`], en Hop draait dan zoals vóór de kern-staat.
+//! [`PrivOp::StateGet`], [`HOP_STATE_MAX`], HopOS v3.0.16). Een foutstatus
+//! is [`agent::StoreError::Refused`]: een kern die weigert wat hij nooit
+//! weigert.
 
 use alloc::vec::Vec;
 
@@ -21,9 +21,8 @@ use crate::{Call, KernSys};
 
 /// Een fout van de client als fout van de staat-opslag.
 ///
-/// Een foutstatus van de kern is een weigering van de op zelf: een oudere
-/// kern zegt "wrong kind" op een op die hij niet kent. Al het andere is de
-/// weg ernaartoe, en die kan later weer werken.
+/// Een foutstatus van de kern is een weigering van de op zelf. Al het andere
+/// is de weg ernaartoe.
 fn store_err(e: &sys::Error) -> agent::StoreError {
     match e {
         sys::Error::Call { status, .. } => agent::StoreError::Refused { status: *status },
@@ -53,10 +52,6 @@ impl<C: Call> agent::Store for KernSys<C> {
         };
         match self.exchange(req, &mut []).await {
             Ok(_) => Ok(()),
-            // Een kern die "niet gevonden" zegt, kent de op ook niet.
-            Err(sys::Error::NotFound { .. }) => Err(agent::StoreError::Refused {
-                status: abi::hopabi::STATUS_NO_ENT,
-            }),
             Err(e) => Err(store_err(&e)),
         }
     }

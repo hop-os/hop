@@ -53,19 +53,6 @@ pub const SYSTEM_LOG_LINES: usize = 200;
 /// blijft liggen, komt de volgende tik.
 const KERN_LINES_PER_PUMP: usize = 256;
 
-/// Na een weigering van de kernlogs (een kern van vóór de kernlogs) vraagt
-/// de pomp het zo vaak opnieuw: een warme flip kan een nieuwe kern brengen.
-pub const KERN_LOG_RETRY_MS: u64 = 60_000;
-
-/// Wat de pomp van de kernlogs de eigenaar te melden heeft.
-#[derive(Debug, PartialEq, Eq)]
-pub enum KernLogNote {
-    /// De kern weigerde de vraag (de eerste keer; daarna stil tot hij wel antwoordt).
-    Refused(SysError),
-    /// De kern geeft zijn regels weer, na een weigering.
-    Back,
-}
-
 /// Waar de start van een taak is.
 #[derive(Debug)]
 enum Phase {
@@ -109,8 +96,6 @@ pub struct HopRunner<S> {
     cages: BTreeMap<String, Cage>,
     in_use: BTreeMap<Slot, String>,
     downloads: usize,
-    /// De kern weigerde zijn eigen regels: vanaf wanneer opnieuw vragen (ms).
-    kern_refused: Option<u64>,
 }
 
 impl<S: SystemApi> HopRunner<S> {
@@ -129,7 +114,6 @@ impl<S: SystemApi> HopRunner<S> {
             cages: BTreeMap::new(),
             in_use: BTreeMap::new(),
             downloads: 0,
-            kern_refused: None,
         }
     }
 
@@ -143,32 +127,17 @@ impl<S: SystemApi> HopRunner<S> {
     /// Haalt de consoleregels van de kern zelf in de ring van `kern`.
     ///
     /// Zoals [`HopRunner::pump_logs`] voor de apps, met slot 0 (`NEXT_LOG`,
-    /// `off` 0). Weigert de kern (HopOS v3.0.16 en eerder), dan vraagt hij
-    /// het pas na [`KERN_LOG_RETRY_MS`] opnieuw, niet elke tik; de eerste
-    /// weigering en de terugkeer komen als [`KernLogNote`] terug, zodat de
-    /// eigenaar er één regel van maakt.
-    pub async fn pump_kern_logs(&mut self, now: u64) -> Option<KernLogNote> {
-        if self.kern_refused.is_some_and(|at| now < at) {
-            return None;
-        }
-        let was_refused = self.kern_refused.is_some();
+    /// `off` 0).
+    pub async fn pump_kern_logs(&mut self) {
         let mut buf = [0u8; LOG_LINE_MAX];
         for _ in 0..KERN_LINES_PER_PUMP {
-            match self.sys.next_kern_line(&mut buf).await {
-                Ok(Some(n)) => {
-                    let line = buf.get(..n).unwrap_or(&[]);
-                    let text = core::str::from_utf8(line).unwrap_or("<log line not utf-8>");
-                    self.system_line(types::KERN_TASK, text);
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    self.kern_refused = Some(now.saturating_add(KERN_LOG_RETRY_MS));
-                    return (!was_refused).then_some(KernLogNote::Refused(e));
-                }
-            }
+            let Some(n) = self.sys.next_kern_line(&mut buf).await else {
+                break;
+            };
+            let line = buf.get(..n).unwrap_or(&[]);
+            let text = core::str::from_utf8(line).unwrap_or("<log line not utf-8>");
+            self.system_line(types::KERN_TASK, text);
         }
-        self.kern_refused = None;
-        was_refused.then_some(KernLogNote::Back)
     }
 
     /// De kern-kant (tests en diagnose).

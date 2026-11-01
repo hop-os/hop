@@ -102,9 +102,8 @@ hop image hopos-o6n-headless.flip --config my-node.cfg              # a bundle: 
 ```
 
 On a HopOS node the two system tasks have logs too: `kern` is the kernel's
-own console (Hop pumps `NEXT_LOG` on slot 0 every tick; a kernel up to
-HopOS v3.0.16 refuses that, Hop says so once with `HOP_KERN_LOG_NONE` and
-asks again every 60 s) and `hop` is Hop's own lines, kept in the process.
+own console (Hop pumps `NEXT_LOG` on slot 0 every tick) and `hop` is Hop's
+own lines, kept in the process.
 `GET /logs/kern/stdout` and `/logs/hop/stdout` on the agent, or
 `/v1/agents/{id}/logs/kern/stdout` through the leader (the dashboard's Logs
 button), 200 lines each.
@@ -149,9 +148,10 @@ never adopt a cage of a previous boot. Hop writes it on every tick that
 changed something (1 s), again every 10 s (a warm kernel flip leaves the new
 kernel empty), before a restart and at the stop bell. Within the 30 s of the
 lease and the leader's agent timeout, a restart is invisible to the cluster:
-the same node takes its own lease back at once. A kernel without the state
-calls says so (`HOP_KERNEL_STATE_NONE`); Hop then behaves as before and
-refuses `/restart`.
+the same node takes its own lease back at once. Hop needs HopOS v3.0.19 or
+later; a kernel that does not answer `STATE_GET`, or a state Hop cannot
+read, stops Hop at its start (`HOP_FATAL step=restore`) and the watchdog
+resets the node.
 
 ## Een cluster van HopOS-nodes
 

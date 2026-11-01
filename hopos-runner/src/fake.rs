@@ -102,8 +102,8 @@ pub struct KernState {
     pub state: Vec<u8>,
     /// Hoe vaak Hop zijn staat neerlegde.
     pub state_puts: u32,
-    /// Een oudere kern zonder de staat-ops en zonder `HOP_RESTART`: hij
-    /// antwoordt zoals `kern::system` op een op die hij niet kent.
+    /// De kern weigert de staat-ops en `HOP_RESTART` met een foutstatus
+    /// (dat doet `kern::system` nooit).
     pub no_state_ops: bool,
     /// `HOP_RESTART` lukt: de kern neemt het (nieuwe) image aan, zoals
     /// vóór de stop van Hop. Zonder: een weigering.
@@ -112,9 +112,6 @@ pub struct KernState {
     pub restarts: Vec<(u64, String, u64)>,
     /// De consoleregels van de kern zelf (`NEXT_LOG` op slot 0).
     pub kern_logs: VecDeque<Vec<u8>>,
-    /// Een kern van vóór de kernlogs (v3.0.16): `NEXT_LOG` op slot 0 is een
-    /// slot buiten bereik.
-    pub no_kern_logs: bool,
     /// Zoveel calls krijgen geen antwoord: de verbinding gaat dicht, zoals
     /// een kern die een verbinding vlak na de start weigert. De client
     /// herhaalt een call één keer na een transportfout, dus twee is één
@@ -416,9 +413,6 @@ impl FakeKern {
                 };
                 ok(0, &info.encode())
             }
-            Some(PrivOp::NextLog) if req.off == 0 && k.no_kern_logs => {
-                err("slot 0 out of range 1..64")
-            }
             Some(PrivOp::NextLog) => {
                 let line = if req.off == 0 {
                     k.kern_logs.pop_front()
@@ -439,7 +433,6 @@ impl FakeKern {
                 ok(0, b"")
             }
             Some(PrivOp::StatePut | PrivOp::StateGet | PrivOp::HopRestart) if k.no_state_ops => {
-                // De kern van v3.0.14 op een op die hij niet kent: `Error::Kind`.
                 err("wrong kind (file or directory)")
             }
             Some(PrivOp::StatePut) => {

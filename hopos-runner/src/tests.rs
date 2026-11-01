@@ -329,9 +329,9 @@ fn a_state_bigger_than_one_bite_never_leaves_hop() {
 }
 
 #[test]
-fn an_older_kernel_refuses_the_state_ops() {
-    // De kern van v3.0.14 kent STATE_PUT, STATE_GET en HOP_RESTART niet: een foutstatus, geen
-    // verbroken verbinding. Hop hoort "geweigerd" en draait door als nu.
+fn a_refused_state_op_is_a_refusal_not_a_lost_connection() {
+    // Een foutstatus op STATE_PUT of STATE_GET (dat doet de kern nooit) is
+    // een weigering, geen verbroken verbinding.
     use agent::Store;
     let (mut s, k) = sys(4);
     k.0.borrow_mut().no_state_ops = true;
@@ -501,24 +501,11 @@ fn the_kernel_hands_out_its_own_lines_on_slot_0() {
         .kern_logs
         .push_back(b"HOPOS_TICK 7 late_ms=0".to_vec());
     let mut buf = [0u8; 64];
-    assert_eq!(bl(s.next_kern_line(&mut buf)), Ok(Some(22)));
+    assert_eq!(bl(s.next_kern_line(&mut buf)), Some(22));
     assert_eq!(&buf[..22], b"HOPOS_TICK 7 late_ms=0");
-    assert_eq!(bl(s.next_kern_line(&mut buf)), Ok(None));
+    assert_eq!(bl(s.next_kern_line(&mut buf)), None);
     // De frame: NEXT_LOG met off 0.
     let f = k.0.borrow().frames.last().unwrap().clone();
     let req = hopabi::decode_req(&f[systemapi::HEADER_LEN..]).unwrap();
     assert_eq!((req.op, req.off), (PrivOp::NextLog.op(), 0));
-}
-
-#[test]
-fn an_older_kernel_refuses_slot_0_and_the_connection_stays() {
-    let (mut s, k) = sys(4);
-    k.0.borrow_mut().no_kern_logs = true;
-    let mut buf = [0u8; 64];
-    assert!(matches!(
-        bl(s.next_kern_line(&mut buf)),
-        Err(SysError::Refused(_))
-    ));
-    bl(s.set_clock(7)).unwrap();
-    assert_eq!(k.0.borrow().dials, 1);
 }

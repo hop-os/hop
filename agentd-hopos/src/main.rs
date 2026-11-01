@@ -48,12 +48,10 @@
 //! `HOP_CLOCK_SYNCED`, `HOP_INIT_SEEDED`, `HOP_ADOPTED n=N`,
 //! `HOP_STRAY_STOPPED slot=N`, `HOP_RESTART`, `HOP_RESTART_ACCEPTED`,
 //! `HOP_RESTART_LEAVING why=replied|grace|bell`, `HOP_STOPPING`,
-//! `HOP_KERN_LOG_ON`, `HOP_KERN_LOG_NONE` (een kern zonder eigen log),
 //! `HOP_FATAL step=<stap>` (een start die niet lukt: Hop stopt met een
 //! exitcode per soort, `EXIT_KERNEL`, `EXIT_CONFIG` of `EXIT_INTERN`, en de
 //! watchdog reset de node; geen herhaallus), en de weigeringen en
-//! degradaties `HOP_RESTART_FAIL`, `HOP_KERNEL_STATE_NONE`,
-//! `HOP_KERNEL_STATE_FAIL`, `HOP_ADOPT_SKIPPED`, `HOPOS_API_INSECURE`,
+//! degradaties `HOP_RESTART_FAIL`, `HOP_KERNEL_STATE_FAIL`, `HOP_ADOPT_SKIPPED`, `HOPOS_API_INSECURE`,
 //! `HOP_SNTP_FAIL`, `HOP_CLOCK_FAIL`, `HOP_TLS_ENTROPY_WEAK`, `HOP_TLS_ENTROPY_HW`,
 //! `HOP_INIT_FAIL`, `HOP_JOB_REFUSED` (een job die de leader-API weigerde,
 //! zoals een vaste poort die zou rollen) en `HOP_DOWNLOAD_QUEUE_FULL`. In
@@ -99,7 +97,7 @@ use agentd_hopos::{
     HttpImages, Hub, Images, Node, Port, Question, Resolve,
 };
 use applib::appnet::{self, Endpoint, Net, NetError, SystemClient, TcpListener, TcpStream};
-use applib::rand::{JITTER_ROUNDS, Origin, Rng};
+use applib::rand::{JITTER_ROUNDS, Rng};
 use applib::rt::Exec;
 use applib::{App, EXEC, log};
 use discovery::Discovery;
@@ -227,13 +225,9 @@ static LEAVING: AtomicBool = AtomicBool::new(false);
 const CLUSTER_IDLE: Duration = Duration::from_secs(20);
 
 /// Nu in milliseconden op de wandklok van de kern: de lease vergelijkt
-/// tijden van verschillende nodes. Zonder wandklok de monotone klok (en de
-/// bewoner zegt `HOP_NO_CLOCK`).
+/// tijden van verschillende nodes. De start eist de wandklok (`fail`).
 fn wall_ms() -> u64 {
-    applib::app()
-        .and_then(App::wall_ns)
-        .unwrap_or_else(applib::clock::now_ns)
-        / 1_000_000
+    applib::app().and_then(App::wall_ns).unwrap_or_default() / 1_000_000
 }
 
 /// Nu in Unix-seconden: de klok van de S3-handtekening.
@@ -503,8 +497,8 @@ async fn store_task(
             ),
             Ok(_) => refused = 0,
             Err(e) => {
-                // Een kern zonder rij of zonder verbinding: luid, de eerste
-                // paar keer, dan eens per minuut.
+                // Een kern zonder verbinding: luid, de eerste paar keer, dan
+                // eens per minuut.
                 refused = refused.saturating_add(1);
                 if refused <= 3 || refused.is_multiple_of(60) {
                     say!("hop: NEXT_STORE failed ({refused}x): {e} HOP_STORE_KERNEL");
@@ -525,9 +519,6 @@ fn entropy(app: &App) -> Rng {
     match rng.origin() {
         o if o.is_hardware() => say!(
             "hop: TLS randomness from the kernel seed ({o}, hardware) mixed with timer jitter ({JITTER_ROUNDS} samples) HOP_TLS_ENTROPY_HW source={o}"
-        ),
-        Origin::None => say!(
-            "hop: TLS randomness from timer jitter only ({JITTER_ROUNDS} samples): the kernel put no seed on the control page (an older kernel) HOP_TLS_ENTROPY_WEAK"
         ),
         o => say!(
             "hop: TLS randomness from the kernel seed and timer jitter ({JITTER_ROUNDS} samples), but the kernel seeds itself from {o}: this node has no hardware RNG HOP_TLS_ENTROPY_WEAK"
@@ -742,9 +733,9 @@ async fn init_specs(app: &'static App, cfg: &BootConfig, c: &mut SystemClient) -
     }
 }
 
-/// Nu in Unix-nanoseconden: de wandklok van de kern, of de monotone klok als die er (nog) niet is.
-fn now(app: &App, exec: &Exec) -> u64 {
-    app.wall_ns().unwrap_or_else(|| exec.now())
+/// Nu in Unix-nanoseconden: de wandklok van de kern (de start eist hem).
+fn now(app: &App) -> u64 {
+    app.wall_ns().unwrap_or_default()
 }
 
 /// Zet de regels van de node op het log, en een download die klaarligt in
@@ -879,7 +870,7 @@ async fn leave<S, I>(
         }
     };
     let why = restart::depart(replied, exec.after(restart::REPLY_GRACE), app.stopped()).await;
-    node.leave(now(app, exec), why).await;
+    node.leave(now(app), why).await;
     flush(node);
 }
 
@@ -926,14 +917,10 @@ async fn resident(app: &'static App) {
     if cfg.insecure_ignored {
         say!("hop: HOPOS_INSECURE=1 ignored: HOPOS_APIKEY is set, the API authenticates");
     }
-    if cfg.memory_defaulted {
-        say!(
-            "hop: HOPOS_MEMORY not set; planning against {} bytes HOP_MEMORY_DEFAULT",
-            cfg.memory
-        );
-    }
     if app.wall_ns().is_none() {
-        say!("hop: no wall clock from the kernel; task times count from boot HOP_NO_CLOCK");
+        // De kern zet de wandklok vóór de eerste instructie van Hop
+        // (HOPOS_CLOCK_FIXED tot SNTP); zonder is hij kapot.
+        fail(app, EXIT_KERNEL, "clock", "no wall clock from the kernel").await;
     }
 
     // De tijdserver: `HOPOS_NTP` (`host` of `host:poort`), anders pool.ntp.org.
@@ -1004,12 +991,12 @@ async fn resident(app: &'static App) {
     );
     let clustered = cluster_cfg.is_some();
     let mut node = match cluster_cfg {
-        None => Node::new(&seen, sys, images, now(app, exec)),
+        None => Node::new(&seen, sys, images, now(app)),
         Some(cc) => {
             // Geclusterd: de init-jobs zaait wie leider wordt op een schone
             // clusterstaat, niet de boot van deze node.
             match start_cluster(app, net, exec, &seen, cc, specs.take()).await {
-                Ok(parts) => Node::new_clustered(&seen, sys, images, now(app, exec), parts),
+                Ok(parts) => Node::new_clustered(&seen, sys, images, now(app), parts),
                 Err(e) => fail(app, EXIT_INTERN, "spawn", format_args!("the cluster: {e}")).await,
             }
         }
@@ -1021,7 +1008,7 @@ async fn resident(app: &'static App) {
     while let Some(l) = HOP_LOG.try_recv() {
         node.hop_line(&l);
     }
-    let kept = match node.restore(now(app, exec)).await {
+    let kept = match node.restore(now(app)).await {
         Ok(k) => k,
         Err(f) => {
             flush(&mut node);
@@ -1032,14 +1019,14 @@ async fn resident(app: &'static App) {
     flush(&mut node);
     if clustered {
         // De boot-claim: raak, dan leidt deze node nu (de staat laadt eerst).
-        node.cluster_boot(now(app, exec));
+        node.cluster_boot(now(app));
         flush(&mut node);
     }
     if !clustered
         && kept.is_clean()
         && let Some(specs) = specs
     {
-        if let Err(e) = node.seed_init_jobs(&specs, now(app, exec)).await {
+        if let Err(e) = node.seed_init_jobs(&specs, now(app)).await {
             say!("hop: init jobs not seeded: {e} HOP_INIT_FAIL");
         }
         flush(&mut node);
@@ -1105,14 +1092,14 @@ async fn resident(app: &'static App) {
     );
 
     let tick_ns = u64::try_from(TICK.as_nanos()).unwrap_or(u64::MAX);
-    let mut next_tick = now(app, exec);
+    let mut next_tick = now(app);
     loop {
         // Eerst de bus leeg (level-triggered): wat binnenkwam terwijl de
         // eigenaar op de kern wachtte, ligt er nog en wordt nu afgehandeld.
         while let Some((slot, q)) = hub.next() {
             match q {
                 Question::Http(port, req) => {
-                    let answer = match node.handle_routed(port, &req, now(app, exec)).await {
+                    let answer = match node.handle_routed(port, &req, now(app)).await {
                         Routed::Reply(r) => Answer::Reply(r),
                         Routed::Forward(f) => Answer::Forward(f),
                     };
@@ -1130,7 +1117,7 @@ async fn resident(app: &'static App) {
                     }
                 }
                 Question::Poll(ask) => {
-                    let chunk = node.poll(&ask, now(app, exec));
+                    let chunk = node.poll(&ask, now(app));
                     hub.answer(slot, Answer::Chunk(chunk));
                 }
                 Question::StreamDone => node.stream_done(),
@@ -1144,25 +1131,25 @@ async fn resident(app: &'static App) {
         // De antwoorden van de taken van de cluster (lease, link, staat,
         // dispatch); standalone blijft de inbox leeg.
         while let Some(m) = INBOX.try_recv() {
-            node.on_mail(m, now(app, exec));
+            node.on_mail(m, now(app));
             flush(&mut node);
         }
-        let t = now(app, exec);
+        let t = now(app);
         if t >= next_tick {
             node.tick(t).await;
             next_tick = t.saturating_add(tick_ns);
             flush(&mut node);
         }
-        let wait = Duration::from_nanos(next_tick.saturating_sub(now(app, exec)));
+        let wait = Duration::from_nanos(next_tick.saturating_sub(now(app)));
         // Hoogstens één brok per ronde: daarna eerst weer de bus (bovenaan).
         match wake(hub, &INBOX, &mut pieces, exec.after(wait), app.stopped()).await {
-            Woke::Mail(m) => node.on_mail(m, now(app, exec)),
-            Woke::Piece(seq, p) => node.on_piece(seq, p, now(app, exec)).await,
+            Woke::Mail(m) => node.on_mail(m, now(app)),
+            Woke::Piece(seq, p) => node.on_piece(seq, p, now(app)).await,
             Woke::Look => {}
             Woke::Stop => {
                 // De laatste staat, dan terug: applib doet het net-afscheid
                 // en de exit, binnen de gratie van de kern.
-                node.on_stop(now(app, exec)).await;
+                node.on_stop(now(app)).await;
                 flush(&mut node);
                 return;
             }

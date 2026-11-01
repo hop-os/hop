@@ -105,8 +105,7 @@ const COLD_FLIP_WAIT: Nanos = 30 * SECOND;
 /// niet (de system-client verbindt stil opnieuw), dus legt hij het blob
 /// gewoon op dit ritme opnieuw neer. Dat is één call met een paar KB per
 /// tien seconden; een herstart binnen tien seconden na een flip is de enige
-/// die dan nog een lege kern treft. Een oudere kern die de ops weigerde,
-/// krijgt op dit ritme ook zijn tweede kans (een flip naar een nieuwe kern).
+/// die dan nog een lege kern treft.
 pub(crate) const STATE_REFRESH: Nanos = 10 * SECOND;
 
 /// Wat [`Node::restore`] bij de start aantrof.
@@ -114,9 +113,6 @@ pub(crate) const STATE_REFRESH: Nanos = 10 * SECOND;
 pub enum Kept {
     /// De kern had niets voor Hop: een schone start.
     Clean,
-    /// De kern houdt geen staat (een oudere kern): schoon, zoals vóór de
-    /// kern-staat.
-    Unsupported,
     /// De staat van de vorige Hop, met zoveel overgenomen kooien.
     Adopted(usize),
 }
@@ -124,7 +120,7 @@ pub enum Kept {
 impl Kept {
     /// Of dit een schone start is: alleen dan zaait een standalone node zijn init-jobs.
     pub fn is_clean(self) -> bool {
-        matches!(self, Self::Clean | Self::Unsupported)
+        self == Self::Clean
     }
 }
 
@@ -133,9 +129,6 @@ impl Kept {
 struct Keep {
     /// Veranderd sinds de laatste geslaagde schrijf.
     dirty: bool,
-    /// De kern weigerde de staat-ops (een oudere kern): alleen het ritme
-    /// van [`STATE_REFRESH`] probeert het nog.
-    refused: bool,
     /// Wanneer het blob hoe dan ook weer moet.
     next: Nanos,
     /// Mislukte schrijfpogingen op rij (luid, drie keer, dan tellen).
@@ -492,14 +485,8 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         let blob = match self.runner.system_mut().load().await {
             Ok(Some(b)) => b,
             Ok(None) => return Ok(Kept::Clean),
-            Err(e @ StoreError::Refused { .. }) => {
-                self.keep.refused = true;
-                self.lines.push(format!(
-                    "hop: this kernel keeps no state for Hop ({e}); a restart of Hop stops every app HOP_KERNEL_STATE_NONE"
-                ));
-                return Ok(Kept::Unsupported);
-            }
-            Err(e @ StoreError::Io) => {
+            // Een kern die zwijgt, of de op weigert (dat doet hij nooit).
+            Err(e @ (StoreError::Io | StoreError::Refused { .. })) => {
                 return Err(Fatal {
                     code: EXIT_KERNEL,
                     why: format!("the kernel did not answer STATE_GET ({e})"),
@@ -583,7 +570,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         if self.cluster.is_none() && matches!(self.leader.poll_snapshot(Time(now)), Ok(Some(_))) {
             changed = true;
         }
-        if changed && !self.keep.refused {
+        if changed {
             self.keep.dirty = true;
         }
         if self.keep.dirty || now >= self.keep.next {
@@ -610,24 +597,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             Ok(n) => {
                 self.keep.dirty = false;
                 self.keep.failures = 0;
-                if self.keep.refused {
-                    self.keep.refused = false;
-                    self.lines.push(String::from(
-                        "hop: the kernel keeps Hop's state now HOP_KERNEL_STATE_KEPT",
-                    ));
-                }
                 Ok(n)
-            }
-            Err(agent::Error::Store(e @ StoreError::Refused { .. })) => {
-                // Een oudere kern: niet elke tik opnieuw, alleen op het ritme.
-                self.keep.dirty = false;
-                if !self.keep.refused {
-                    self.keep.refused = true;
-                    self.lines.push(format!(
-                        "hop: this kernel keeps no state for Hop ({e}); a restart of Hop stops every app HOP_KERNEL_STATE_NONE"
-                    ));
-                }
-                Err(format!("this kernel keeps no state for Hop: {e}"))
             }
             Err(e @ agent::Error::Store(StoreError::TooBig { .. })) => {
                 // Groeit niet vanzelf weer in: niet elke tik een blob van
@@ -1197,16 +1167,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         self.run_actions(now, actions).await;
         self.drain(now).await;
         self.runner.pump_logs(now / MILLISECOND).await;
-        match self.runner.pump_kern_logs(now / MILLISECOND).await {
-            Some(runner::KernLogNote::Refused(e)) => self.lines.push(format!(
-                "hop: this kernel does not hand out its own log lines ({e}); /logs/kern/stdout stays empty, asking again every {} s HOP_KERN_LOG_NONE",
-                runner::KERN_LOG_RETRY_MS / 1000
-            )),
-            Some(runner::KernLogNote::Back) => self.lines.push(String::from(
-                "hop: the kernel hands out its own log lines now; /logs/kern/stdout has them HOP_KERN_LOG_ON",
-            )),
-            None => {}
-        }
+        self.runner.pump_kern_logs().await;
         self.cluster_tick(now);
         self.collect_events();
         self.keep_state(now).await;

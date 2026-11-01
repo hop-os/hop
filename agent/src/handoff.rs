@@ -46,8 +46,7 @@ pub const HANDOFF_VERSION: u64 = 2;
 /// Een fout van de staat-opslag.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StoreError {
-    /// De opslag weigerde de vraag zelf: op HopOS een kern die de staat-ops
-    /// niet kent (een oudere kern), en die dus niets voor Hop bewaart.
+    /// De opslag weigerde de vraag zelf.
     Refused {
         /// De status van het antwoord.
         status: u16,
@@ -69,10 +68,7 @@ pub enum StoreError {
 impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Refused { status } => write!(
-                f,
-                "the store refused the call (status {status}); an older kernel does not know the state ops"
-            ),
+            Self::Refused { status } => write!(f, "the store refused the call (status {status})"),
             Self::Io => f.write_str("the call to the store failed"),
             Self::TooBig { len, max } => {
                 write!(f, "the state is {len} bytes, the store takes {max}")

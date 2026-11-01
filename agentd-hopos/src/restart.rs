@@ -32,13 +32,12 @@
 //!    main-schil van applib doet het net-afscheid en de exit, en de kern zet
 //!    de nieuwe Hop in hetzelfde slot.
 //!
-//! Luidt de bel toch eerst (een kern van vóór deze afspraak, of een
-//! antwoord dat te lang duurt), dan is dat de weg van elke stop: de staat
-//! een laatste keer, en weg.
+//! Luidt de bel toch eerst (een antwoord dat te lang duurt), dan is dat de
+//! weg van elke stop: de staat een laatste keer, en weg.
 //!
-//! Een kern die de staat niet houdt (een oudere, zonder de ops) of de
-//! herstart weigert: 502 met de reden, en deze Hop draait door. Zonder
-//! staat zou de nieuwe Hop elke app als bewoner van niemand stoppen.
+//! Een kern die de staat niet aanneemt of de herstart weigert: 502 met de
+//! reden, en deze Hop draait door. Zonder staat zou de nieuwe Hop elke app
+//! als bewoner van niemand stoppen.
 
 use alloc::format;
 use alloc::string::String;
