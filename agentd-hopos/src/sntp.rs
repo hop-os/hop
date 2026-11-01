@@ -27,44 +27,38 @@ use core::future::Future;
 
 use crate::fetch::Resolve;
 
-/// Wat de kloktaak met één synchronisatie doet ([`apply`]).
+/// Wat de eigenaar met één meting doet ([`apply`]).
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClockStep {
     /// De klok staat: `SET_CLOCK` lukte met deze Unix-nanoseconden.
     Synced(u64),
-    /// SNTP faalde (het net, de server): luid, en later opnieuw.
-    Sntp(SntpError),
-    /// De kern antwoordde niet op een latere `SET_CLOCK` (de klok stond al):
-    /// luid, en bij de volgende synchronisatie opnieuw.
+    /// De kern antwoordde na de start niet op `SET_CLOCK`: luid, en bij de
+    /// volgende meting opnieuw.
     Later(runner::SysError),
     /// Hard: de kern weigerde `SET_CLOCK` (dat mag hij nooit), of hij
-    /// antwoordde niet op de eerste. Hop stopt; de watchdog reset de node.
+    /// antwoordde bij de start niet. Hop stopt; de watchdog reset de node.
     Fatal(runner::SysError),
 }
 
-/// Zet de klok van de kern uit één synchronisatie (`got`), op monotone tijd `now`.
+/// Zet de klok van de kern uit één meting, op monotone tijd `now`.
 ///
 /// Geen herhaallus (Derek, 24-10): de kern plaatst een nieuwe Hop pas als
 /// de oude weg is, en sinds HopOS v3.0.19 krijgt die vanaf zijn eerste
 /// instructie zijn verbindingen. Een `SET_CLOCK` die bij de start niet lukt,
-/// is dus een kapotte node, geen pech: hard falen. `synced` zegt of de klok
-/// in deze Hop al eens stond; dan is een kern die even niet antwoordt (een
-/// flip) een latere fout en geen reden om te stoppen. Een echte weigering
-/// is altijd hard.
+/// is dus een kapotte node, geen pech: hard falen. `started` zegt of de
+/// start voorbij is; dan is een kern die even niet antwoordt (een flip) een
+/// latere fout en geen reden om te stoppen. Een echte weigering is altijd
+/// hard.
 pub async fn apply<S: runner::SystemApi>(
     sys: &mut S,
-    got: Result<Sample, SntpError>,
+    sample: &Sample,
     now: u64,
-    synced: bool,
+    started: bool,
 ) -> ClockStep {
-    let sample = match got {
-        Ok(s) => s,
-        Err(e) => return ClockStep::Sntp(e),
-    };
     let unix_ns = sample.unix_at(now);
     match sys.set_clock(unix_ns).await {
         Ok(()) => ClockStep::Synced(unix_ns),
-        Err(e @ runner::SysError::Unreachable(_)) if synced => ClockStep::Later(e),
+        Err(e @ runner::SysError::Unreachable(_)) if started => ClockStep::Later(e),
         Err(e) => ClockStep::Fatal(e),
     }
 }

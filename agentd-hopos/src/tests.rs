@@ -1767,9 +1767,9 @@ fn a_kernel_that_refuses_set_clock_stops_hop() {
     let k = FakeKern::new(4);
     k.0.borrow_mut().clock_refused = true;
     let mut sys = KernSys::new(k.client(), 1);
-    // Ook als de klok al eens stond: de kern mag hem nooit weigeren.
-    for synced in [false, true] {
-        let step = block_on(apply(&mut sys, Ok(sample()), 2_000, synced));
+    // Ook na de start: de kern mag hem nooit weigeren.
+    for started in [false, true] {
+        let step = block_on(apply(&mut sys, &sample(), 2_000, started));
         assert!(
             matches!(step, ClockStep::Fatal(runner::SysError::Refused(_))),
             "{step:?}"
@@ -1778,40 +1778,25 @@ fn a_kernel_that_refuses_set_clock_stops_hop() {
 }
 
 #[test]
-fn a_silent_kernel_at_the_first_set_clock_stops_hop_later_not() {
+fn a_silent_kernel_at_the_start_set_clock_stops_hop_later_not() {
     use crate::sntp::{ClockStep, apply};
     let k = FakeKern::new(4);
     let mut sys = KernSys::new(k.client(), 1);
     // Geen antwoord (de client herhaalt één keer, dus twee calls weg).
     k.0.borrow_mut().drop_calls = 2;
-    let step = block_on(apply(&mut sys, Ok(sample()), 2_000, false));
+    let step = block_on(apply(&mut sys, &sample(), 2_000, false));
     assert!(
         matches!(step, ClockStep::Fatal(runner::SysError::Unreachable(_))),
         "{step:?}"
     );
-    // Stond de klok al (een flip onderweg): luid, maar Hop blijft.
+    // Na de start (een flip onderweg): luid, maar Hop blijft.
     k.0.borrow_mut().drop_calls = 2;
-    let step = block_on(apply(&mut sys, Ok(sample()), 2_000, true));
+    let step = block_on(apply(&mut sys, &sample(), 2_000, true));
     assert!(matches!(step, ClockStep::Later(_)), "{step:?}");
     // En als de kern antwoordt: de tijd van de sample op het moment van nu.
-    let step = block_on(apply(&mut sys, Ok(sample()), 2_000, false));
+    let step = block_on(apply(&mut sys, &sample(), 2_000, false));
     assert_eq!(step, ClockStep::Synced(1_790_000_000_000_001_000));
     assert_eq!(k.0.borrow().clock, 1_790_000_000_000_001_000);
-}
-
-#[test]
-fn an_sntp_failure_is_not_the_kernel_and_hop_stays() {
-    use crate::sntp::{ClockStep, SntpError, apply};
-    let k = FakeKern::new(4);
-    let mut sys = KernSys::new(k.client(), 1);
-    let step = block_on(apply(
-        &mut sys,
-        Err(SntpError::Link(String::from("no answer within 3 s"))),
-        2_000,
-        false,
-    ));
-    assert!(matches!(step, ClockStep::Sntp(_)), "{step:?}");
-    assert!(k.0.borrow().ops.is_empty(), "no SET_CLOCK without a sample");
 }
 
 #[test]

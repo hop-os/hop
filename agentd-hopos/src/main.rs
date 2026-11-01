@@ -23,16 +23,19 @@
 //!   (`/v1/events`, een log-tail) houdt zijn werker vast en vraagt de
 //!   eigenaar elke halve seconde wat er bij kwam.
 //!
-//! - de klok: SNTP bij de start en elk uur (`pool.ntp.org`), de tijd naar
-//!   de kern met `SET_CLOCK`. Pas daarna vertrouwt de downloader de
-//!   wandklok voor `https` (een keten heeft een datum nodig).
+//! - de kloktaak: elk uur een SNTP-meting (`pool.ntp.org`) als bericht naar
+//!   de eigenaar, die de klok van de kern zet met `SET_CLOCK` over zijn
+//!   eigen verbinding. Pas na de eerste vertrouwen de downloader en de
+//!   cluster de wandklok (een keten heeft een datum nodig, een lease een
+//!   tijd).
 //!
 //! Artifacts komen over `http://` en `https://` (`agentd_hopos::fetch`):
 //! TLS met de Mozilla-wortels, hostnamen via de resolver.
 //!
 //! De start, in deze volgorde: de staat van de vorige Hop uit de kern
 //! (`Node::restore`: de kooien die nog draaien worden van deze Hop), dan de
-//! veger (wat daarna nog draait is van niemand), dan de cluster (de
+//! veger (wat daarna nog draait is van niemand), dan de klok (één meting en
+//! `SET_CLOCK`, als stap), dan de cluster (de
 //! boot-claim; de registratie bij een leader meldt de overgenomen taken al),
 //! en alleen bij een schone start de init-jobs uit `HOPOS_INIT_JOBS` of
 //! `/hop/init-jobs.json` (standalone; geclusterd zaait de leider op een
@@ -91,7 +94,7 @@ use agentd_hopos::forward::{self, Routed, STREAM_IDLE};
 use agentd_hopos::lock::{self, ClusterConfig};
 use agentd_hopos::mail::{DispatchQueue, Inbox, LeaseQueue, LinkQueue, Mail, Nap, StateQueue};
 use agentd_hopos::restart;
-use agentd_hopos::sntp::{self, NtpLink, PACKET};
+use agentd_hopos::sntp::{self, NtpLink, PACKET, Sample};
 use agentd_hopos::{
     Answer, BootConfig, ClusterParts, Connect, EXIT_CONFIG, EXIT_INTERN, EXIT_KERNEL, Handoff,
     HttpImages, Hub, Images, Node, Port, Question, Resolve,
@@ -154,9 +157,14 @@ const NTP_LOUD: u32 = 3;
 const INIT_FILE_MAX: usize = 64 << 10;
 
 /// Of SNTP in deze boot gelukt is: pas dan is de wandklok van de kern
-/// vertrouwd genoeg voor een certificaatdatum. Eén schrijver (de
-/// kloktaak), gelezen door de downloader; een vlag, geen protocol.
+/// vertrouwd genoeg voor een certificaatdatum. Eén schrijver (de eigenaar,
+/// [`set_clock`]), gelezen door de downloader en de clients van de cluster;
+/// een vlag, geen protocol.
 static CLOCK_SYNCED: AtomicBool = AtomicBool::new(false);
+
+/// De meting van de kloktaak naar de eigenaar, die er de klok van de kern
+/// mee zet.
+static CLOCK: Mailbox<Sample, 1> = Mailbox::new();
 
 /// De rijen van de cluster (zie `agentd_hopos::mail`): statisch, want de
 /// taken leven zo lang als de bewoner. Standalone blijven ze leeg.
@@ -348,73 +356,97 @@ impl NtpLink for UdpLink {
     }
 }
 
-/// De kloktaak: SNTP bij de start en elk uur, de tijd naar de kern met
-/// `SET_CLOCK`. Luid als het niet lukt; de node draait door, en `https`
-/// wacht op een vertrouwde klok.
+/// Eén SNTP-meting: de naam opzoeken en tot [`sntp::ATTEMPTS`] keer vragen,
+/// elk met [`NTP_TIMEOUT`].
+async fn measure(
+    net: &'static Net,
+    exec: &'static Exec,
+    server: &str,
+    port: u16,
+    seq: &mut u64,
+) -> Result<Sample, sntp::SntpError> {
+    let mut link = UdpLink { net, port };
+    let nonce = || {
+        *seq = seq.wrapping_add(1);
+        exec.now() ^ seq.rotate_left(48)
+    };
+    sntp::sync(&mut SlotResolver, &mut link, server, || exec.now(), nonce).await
+}
+
+/// De kloktaak: na `wait`, en daarna elk uur (na een mislukte meting na
+/// [`NTP_RETRY`]), één SNTP-meting als bericht naar de eigenaar ([`CLOCK`]).
+/// De eigenaar zet de klok van de kern met `SET_CLOCK` over de
+/// hoofdverbinding ([`set_clock`]).
 ///
-/// Een eigen system-verbinding per synchronisatie, die vóór de wacht weer
-/// dichtgaat: de kern laat Hop drie verbindingen tegelijk toe
-/// (`MAX_HOP_CONNS`), de eigenaar-taak en de store-taak houden er elk één;
-/// een uur lang een derde openhouden voor één call is zonde.
+/// Geen eigen system-verbinding (besluit O9, 01-11): Hop houdt er twee vast,
+/// de eigenaar en de store-taak, en de derde plaats van `MAX_HOP_CONNS` is
+/// voor de ene herverbinding van applib, zoals bij een app. Het net (DNS en
+/// UDP) wacht hier, niet in de eigenaar. Een NTP-server die niet antwoordt is
+/// het net, geen fout van de node: luid, drie keer, dan één op twaalf.
 async fn clock_task(
-    app: &'static App,
     net: &'static Net,
     exec: &'static Exec,
     server: String,
     port: u16,
+    mut wait: Duration,
 ) {
     let mut fails: u32 = 0;
     let mut seq: u64 = 0;
     loop {
-        let mut link = UdpLink { net, port };
-        let got = sntp::sync(
-            &mut SlotResolver,
-            &mut link,
-            &server,
-            || exec.now(),
-            || {
-                seq = seq.wrapping_add(1);
-                exec.now() ^ seq.rotate_left(48)
-            },
-        )
-        .await;
-        let mut sys = KernSys::new(net.system_client(), 1);
-        let stratum = got.as_ref().map_or(0, |s| s.stratum);
-        let delay_us = got.as_ref().map_or(0, |s| s.delay_ns / 1000);
-        let synced = CLOCK_SYNCED.load(Relaxed);
-        let wait = match sntp::apply(&mut sys, got, exec.now(), synced).await {
-            sntp::ClockStep::Synced(unix_ns) => {
-                CLOCK_SYNCED.store(true, Relaxed);
+        exec.after(wait).await;
+        wait = match measure(net, exec, &server, port, &mut seq).await {
+            Ok(sample) => {
                 fails = 0;
-                say!(
-                    "hop: clock set from {server} (stratum {stratum}, delay {delay_us} us) to {} s HOP_CLOCK_SYNCED",
-                    unix_ns / 1_000_000_000
-                );
+                // Vol kan niet: de eigenaar leest elke ronde, en de volgende
+                // meting komt pas over een uur.
+                let _ = CLOCK.try_send(sample);
                 NTP_EVERY
             }
-            sntp::ClockStep::Later(e) => {
-                say!(
-                    "hop: SET_CLOCK: {e}; the clock stays as it was until the next sync HOP_CLOCK_FAIL"
-                );
-                NTP_RETRY
-            }
-            sntp::ClockStep::Fatal(e) => {
-                // Een kern die SET_CLOCK weigert, of bij de start niet
-                // antwoordt, is een kapotte node: hard, de watchdog reset.
-                fail(app, EXIT_KERNEL, "clock", format_args!("SET_CLOCK: {e}")).await
-            }
-            sntp::ClockStep::Sntp(e) => {
+            Err(e) => {
                 fails = fails.saturating_add(1);
                 if fails <= NTP_LOUD || fails.is_multiple_of(12) {
                     say!(
-                        "hop: SNTP {server}:{port} failed ({fails}x): {e}; the wall clock is not synced, https downloads wait for it HOP_SNTP_FAIL"
+                        "hop: SNTP {server}:{port} failed ({fails}x): {e}; the clock stays as it is HOP_SNTP_FAIL"
                     );
                 }
                 NTP_RETRY
             }
         };
-        drop(sys);
-        exec.after(wait).await;
+    }
+}
+
+/// Zet de klok van de kern uit een meting, over de hoofdverbinding: bij de
+/// start als stap in de reeks (`started` onwaar), daarna voor de metingen
+/// van de kloktaak. Een kern die `SET_CLOCK` weigert, of bij de start niet
+/// antwoordt, is een kapotte node: [`fail`].
+async fn set_clock<S, I>(
+    app: &App,
+    exec: &Exec,
+    node: &mut Node<S, I>,
+    sample: &Sample,
+    server: &str,
+    started: bool,
+) where
+    S: runner::SystemApi + agent::Store,
+    I: Images,
+{
+    let sys = node.runner_mut().system_mut();
+    match sntp::apply(sys, sample, exec.now(), started).await {
+        sntp::ClockStep::Synced(unix_ns) => {
+            CLOCK_SYNCED.store(true, Relaxed);
+            say!(
+                "hop: clock set from {server} (stratum {}, delay {} us) to {} s HOP_CLOCK_SYNCED",
+                sample.stratum,
+                sample.delay_ns / 1000,
+                unix_ns / 1_000_000_000
+            );
+        }
+        sntp::ClockStep::Later(e) => say!(
+            "hop: SET_CLOCK: {e}; the clock stays as it was until the next sync HOP_CLOCK_FAIL"
+        ),
+        sntp::ClockStep::Fatal(e) => {
+            fail(app, EXIT_KERNEL, "clock", format_args!("SET_CLOCK: {e}")).await
+        }
     }
 }
 
@@ -923,17 +955,6 @@ async fn resident(app: &'static App) {
         fail(app, EXIT_KERNEL, "clock", "no wall clock from the kernel").await;
     }
 
-    // De tijdserver: `HOPOS_NTP` (`host` of `host:poort`), anders pool.ntp.org.
-    let (ntp_host, ntp_port) = sntp::server_from(app.env(sntp::ENV_NTP));
-    if let Err(e) = exec.spawn(clock_task(app, net, exec, ntp_host, ntp_port)) {
-        fail(
-            app,
-            EXIT_INTERN,
-            "spawn",
-            format_args!("the clock task: {e}"),
-        )
-        .await;
-    }
     if let Err(e) = exec.spawn(store_task(
         app,
         net,
@@ -1016,6 +1037,35 @@ async fn resident(app: &'static App) {
         }
     };
     node.sweep_strays().await;
+    flush(&mut node);
+    // De klok, als stap in de reeks (besluit O9, 01-11): één meting, en
+    // SET_CLOCK over de hoofdverbinding. Vóór het zaaien en de cluster: een
+    // artifact over https vertrouwt pas een gezette klok (F8), en een lease is
+    // een tijd op de wandklok. De tijdserver: `HOPOS_NTP` (`host` of
+    // `host:poort`), anders pool.ntp.org.
+    let (ntp_host, ntp_port) = sntp::server_from(app.env(sntp::ENV_NTP));
+    let next_sync = match measure(net, exec, &ntp_host, ntp_port, &mut 0).await {
+        Ok(sample) => {
+            set_clock(app, exec, &mut node, &sample, &ntp_host, false).await;
+            NTP_EVERY
+        }
+        Err(e) => {
+            say!(
+                "hop: SNTP {ntp_host}:{ntp_port} failed: {e}; the wall clock is not synced, https and the cluster wait for it HOP_SNTP_FAIL"
+            );
+            NTP_RETRY
+        }
+    };
+    let clock = clock_task(net, exec, ntp_host.clone(), ntp_port, next_sync);
+    if let Err(e) = exec.spawn(clock) {
+        fail(
+            app,
+            EXIT_INTERN,
+            "spawn",
+            format_args!("the clock task: {e}"),
+        )
+        .await;
+    }
     flush(&mut node);
     if clustered {
         // De boot-claim: raak, dan leidt deze node nu (de staat laadt eerst).
@@ -1123,6 +1173,10 @@ async fn resident(app: &'static App) {
                 Question::StreamDone => node.stream_done(),
             }
             flush(&mut node);
+        }
+        // Een meting van de kloktaak: SET_CLOCK over de hoofdverbinding.
+        if let Some(sample) = CLOCK.try_recv() {
+            set_clock(app, exec, &mut node, &sample, &ntp_host, true).await;
         }
         // De regels van de andere taken van Hop naar de ring van `hop`.
         while let Some(l) = HOP_LOG.try_recv() {
