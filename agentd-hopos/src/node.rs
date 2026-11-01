@@ -211,9 +211,6 @@ pub struct Node<S, I> {
     /// De kern nam een herstart aan: deze Hop vertrekt zodra zijn antwoord
     /// de deur uit is ([`Node::take_leaving`], `crate::restart`).
     leaving: bool,
-    /// De klok van de kern staat: gezet door deze Hop ([`Node::set_clock`])
-    /// of door de vorige (de staat bij de kern, [`Node::restore`]).
-    clock: bool,
 }
 
 impl<S: SystemApi + Store, I: Images> Node<S, I> {
@@ -289,7 +286,6 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             loads: VecDeque::new(),
             next_seq: 1,
             leaving: false,
-            clock: false,
         }
     }
 
@@ -428,8 +424,9 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         Ok(())
     }
 
-    /// Neemt de staat van de vorige Hop over uit de kern: zijn jobs, en de
-    /// taken waarvan de kern het slot als draaiend meldt.
+    /// Neemt de staat van de vorige Hop over ([`read_state`]): zijn jobs, en
+    /// de taken waarvan de kern het slot als draaiend meldt. `None` is een
+    /// schone start.
     ///
     /// Vóór [`Node::sweep_strays`] en vóór de eerste registratie bij een
     /// leader: de leader ziet de taken dan meteen als geplaatst. Standalone
@@ -438,44 +435,16 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     /// niet meer draait, of al van een ander is, neemt hij niet over: die
     /// plaatst de leader opnieuw.
     ///
-    /// Een kern die niet antwoordt, of een staat die er is maar niet te lezen
-    /// is, is een [`Fatal`]: nooit leeg beginnen, want dan stopt de veger
-    /// elke app en zijn standalone de jobs weg (besluit H3, 01-11). De
-    /// watchdog reset de node, en de koude boot begint schoon, met de
-    /// init-jobs.
-    pub async fn restore(&mut self, now: Nanos) -> Result<Kept, Fatal> {
-        let unreadable = |why: String| Fatal {
-            code: EXIT_INTERNAL,
-            why: format!("the kernel's state for Hop is unreadable: {why}"),
+    /// Ná de klok (main.rs): wat de leader opnieuw plaatst, is meteen een
+    /// download, en `https` dateert de keten op de wandklok.
+    ///
+    /// De kooien gaan naar de runner, de records naar de agent, standalone de
+    /// leader. Een kern die de stand van een kooi niet geeft, of een staat van
+    /// de leader die niet te lezen is, is [`Fatal`].
+    pub async fn restore(&mut self, state: Option<Handoff>, now: Nanos) -> Result<Kept, Fatal> {
+        let Some(h) = state else {
+            return Ok(Kept::Clean);
         };
-        let blob = match self.runner.system_mut().load().await {
-            Ok(Some(b)) => b,
-            Ok(None) => return Ok(Kept::Clean),
-            // Een kern die zwijgt, of de op weigert (dat doet hij nooit).
-            Err(e @ (StoreError::Io | StoreError::Refused { .. })) => {
-                return Err(Fatal {
-                    code: EXIT_KERNEL,
-                    why: format!("the kernel did not answer STATE_GET ({e})"),
-                });
-            }
-            Err(e) => return Err(unreadable(format!("{e}"))),
-        };
-        let h = match Handoff::parse(&blob) {
-            Ok(Some(h)) => h,
-            Ok(None) => return Ok(Kept::Clean),
-            Err(e) => return Err(unreadable(format!("{} bytes: {e}", blob.len()))),
-        };
-        drop(blob);
-        self.clock = h.clock;
-        let n = self.adopt(now, h).await?;
-        Ok(Kept::Adopted(n))
-    }
-
-    /// De overname zelf: de kooien bij de runner, de records bij de agent,
-    /// standalone de leader. Geeft het aantal overgenomen kooien; een kern
-    /// die de stand van een kooi niet geeft, of een staat van de leader die
-    /// niet te lezen is, is [`Fatal`].
-    async fn adopt(&mut self, now: Nanos, h: Handoff) -> Result<usize, Fatal> {
         let own = self.own_slot;
         let mut want = Vec::new();
         for t in &h.tasks {
@@ -529,7 +498,7 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             ));
         }
         self.drain(now).await;
-        Ok(n)
+        Ok(Kept::Adopted(n))
     }
 
     /// Legt de staat nu bij de kern neer; geeft de maat van het blob.
@@ -540,27 +509,19 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         } else {
             None
         };
+        // `clock`: deze Hop draait alleen met een gezette klok (de start
+        // stopt anders), dus de volgende mag hem vertrouwen (besluit H5).
         self.agent
-            .save_to(self.runner.system_mut(), leader.as_deref(), self.clock)
+            .save_to(self.runner.system_mut(), leader.as_deref(), true)
             .await
             .map_err(|e| format!("{e}"))
     }
 
-    /// Zet de klok van de kern uit een meting (`SET_CLOCK`, zie
-    /// [`crate::sntp::apply`]) en onthoudt dat hij staat: dat gaat mee in de
-    /// staat, zodat een herstarte Hop de klok van de kern vertrouwt in plaats
-    /// van eerst zelf te meten (besluit H5, 01-11).
-    pub async fn set_clock(&mut self, sample: &Sample, now: u64, started: bool) -> ClockStep {
-        let step = crate::sntp::apply(self.runner.system_mut(), sample, now, started).await;
-        if matches!(step, ClockStep::Synced(_)) {
-            self.clock = true;
-        }
-        step
-    }
-
-    /// Of de klok van de kern staat (zie [`Node::set_clock`]).
-    pub fn clock(&self) -> bool {
-        self.clock
+    /// Zet de klok van de kern uit een uurmeting (`SET_CLOCK` over de
+    /// hoofdverbinding, zie [`crate::sntp::apply`]). De eerste zette de
+    /// start, vóór de node er was.
+    pub async fn set_clock(&mut self, sample: &Sample, now: u64) -> ClockStep {
+        crate::sntp::apply(self.runner.system_mut(), sample, now, true).await
     }
 
     /// De kern luidde de stop-bel (een stop van het slot, of een herstart
@@ -1351,6 +1312,35 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             }
         }
     }
+}
+
+/// Leest de staat die de vorige Hop bij de kern neerlegde (`STATE_GET`);
+/// `None` als er geen is. Nog niets overgenomen: dat doet [`Node::restore`].
+///
+/// De eerste call van de start na de init-jobs, vóór de klok: de staat zegt
+/// of de vorige Hop de klok al zette ([`Handoff::clock`], besluit H5). Een
+/// kern die niet antwoordt, of een staat die er is maar niet te lezen is,
+/// is een [`Fatal`]: nooit leeg beginnen, want dan stopt de veger elke app
+/// en zijn standalone de jobs weg (besluit H3, 01-11). De watchdog reset de
+/// node, en de koude boot begint schoon, met de init-jobs.
+pub async fn read_state<S: Store>(sys: &mut S) -> Result<Option<Handoff>, Fatal> {
+    let unreadable = |why: String| Fatal {
+        code: EXIT_INTERNAL,
+        why: format!("the kernel's state for Hop is unreadable: {why}"),
+    };
+    let blob = match sys.load().await {
+        Ok(Some(b)) => b,
+        Ok(None) => return Ok(None),
+        // Een kern die zwijgt, of de op weigert (dat doet hij nooit).
+        Err(e @ (StoreError::Io | StoreError::Refused { .. })) => {
+            return Err(Fatal {
+                code: EXIT_KERNEL,
+                why: format!("the kernel did not answer STATE_GET ({e})"),
+            });
+        }
+        Err(e) => return Err(unreadable(format!("{e}"))),
+    };
+    Handoff::parse(&blob).map_err(|e| unreadable(format!("{} bytes: {e}", blob.len())))
 }
 
 /// De init-jobs uit `specs` (een JSON-array van jobspecs, zoals

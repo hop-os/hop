@@ -35,9 +35,6 @@ use leantls::Entropy;
 
 use crate::fetch::{Connect, Resolve, Tcp, Trace, Web};
 
-/// De zin als `https` wacht op de klok.
-const NO_CLOCK: &str = "no trusted wall clock (SNTP has not succeeded), so certificate dates cannot be checked; https refused";
-
 /// Een verbinding die nooit zonder leestermijn leest.
 ///
 /// leanhttp's client zet de leestermijn na de kop op `None` (een download van
@@ -139,21 +136,21 @@ pub struct Client<C, R> {
     connect: C,
     resolver: R,
     rng: Rng,
-    /// Nu in Unix-seconden, alleen als de klok vertrouwd is: een keten zonder
-    /// datumtoets is geen keten, dus zonder vertrouwde tijd geen `https`.
-    trusted_secs: fn() -> Option<u64>,
+    /// Nu in Unix-seconden, de datum van een keten: de wandklok van de kern,
+    /// die de start zette vóór de eerste verbinding naar buiten.
+    clock: fn() -> Option<u64>,
     /// Wat de kale dial van het laatste verzoek zag.
     trace: Trace,
 }
 
 impl<C: Connect, R: Resolve> Client<C, R> {
     /// Een client over `connect` en `resolver`, met `rng` voor de handshakes.
-    pub fn new(connect: C, resolver: R, rng: Rng, trusted_secs: fn() -> Option<u64>) -> Self {
+    pub fn new(connect: C, resolver: R, rng: Rng, clock: fn() -> Option<u64>) -> Self {
         Self {
             connect,
             resolver,
             rng,
-            trusted_secs,
+            clock,
             trace: Trace::default(),
         }
     }
@@ -170,7 +167,7 @@ impl<C: Connect, R: Resolve> Client<C, R> {
             resolver: &mut self.resolver,
             trace: &mut self.trace,
         };
-        WebDial::new(tcp, leantls::MOZILLA_ROOTS, self.trusted_secs, move || {
+        WebDial::new(tcp, leantls::MOZILLA_ROOTS, self.clock, move || {
             Some(Entropy::new(rng.array()))
         })
     }
@@ -206,7 +203,7 @@ impl<C: Connect, R: Resolve> Client<C, R> {
 
     /// Waarom een verzoek over [`Client::web`] faalde, als zin voor de log:
     /// de TLS-reden (`tls`, uit `WebDial::last_error`), anders de stap van
-    /// de kale dial, anders de klok, anders de fout van leanhttp.
+    /// de kale dial, anders de fout van leanhttp.
     pub fn reason(&mut self, e: leanhttp::Error, tls: Option<leanhttps::Error>) -> String {
         let why = self.trace.why.take();
         match (tls, why) {
@@ -215,9 +212,6 @@ impl<C: Connect, R: Resolve> Client<C, R> {
             ),
             (Some(t), _) => format!("tls {}: {t}", self.trace.host),
             (None, Some(why)) => why,
-            (None, None) if e == leanhttp::Error::Connect && (self.trusted_secs)().is_none() => {
-                String::from(NO_CLOCK)
-            }
             (None, None) => format!("{e}"),
         }
     }

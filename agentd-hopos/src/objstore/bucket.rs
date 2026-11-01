@@ -73,19 +73,20 @@ pub struct Config {
 /// De bucket van de apps op S3.
 pub struct S3Bucket<C, R> {
     client: leans3::Client,
-    /// De verbindingen: de webdialer, de willekeur en de vertrouwde klok.
+    /// De verbindingen: de webdialer, de willekeur en de klok van de keten.
     http: Client<C, R>,
 }
 
 impl<C: Connect, R: Resolve> S3Bucket<C, R> {
-    /// Een bucket; `wall` tekent (Unix-seconden), `trusted` dateert de keten.
+    /// Een bucket; `wall` tekent (Unix-seconden), `chain` dateert de keten
+    /// (dezelfde wandklok, als `Option` voor leanhttps).
     pub fn new(
         cfg: &Config,
         connect: C,
         resolver: R,
         rng: applib::rand::Rng,
         wall: fn() -> u64,
-        trusted: fn() -> Option<u64>,
+        chain: fn() -> Option<u64>,
     ) -> Self {
         let region = if cfg.region.is_empty() {
             // Een lege regio tekent niet; MinIO en R2 nemen elke naam.
@@ -104,7 +105,7 @@ impl<C: Connect, R: Resolve> S3Bucket<C, R> {
                 path_style: cfg.path_style,
                 now: Some(wall),
             },
-            http: Client::new(connect, resolver, rng, trusted),
+            http: Client::new(connect, resolver, rng, chain),
         }
     }
 

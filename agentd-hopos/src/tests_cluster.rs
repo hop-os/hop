@@ -38,6 +38,7 @@ use crate::mail::{
     DispatchQueue, Inbox, LeaseQueue, LinkJob, LinkQueue, Mail, Remote, StateOp, StateQueue,
 };
 use crate::relay::Relay;
+use crate::tests::restore;
 use crate::{ClusterParts, Images, Node, Port, Sink};
 
 const KEY: &[u8] = b"test-key";
@@ -1498,7 +1499,7 @@ fn leader_after_restart(adopt: bool) -> (TestNode, Queues, FakeKern) {
     let k = kernel_with_welcome();
     let (mut n, q) = clustered_on(&k);
     if adopt {
-        assert_eq!(block_on(n.restore(T0)), Ok(crate::Kept::Adopted(1)));
+        assert_eq!(restore(&mut n, &k, T0), Ok(crate::Kept::Adopted(1)));
     }
     n.cluster_boot(T0);
     assert_eq!(drain(q.lease), vec![LeaseOp::Claim]);
@@ -1545,7 +1546,7 @@ fn a_restarted_leader_does_not_place_its_adopted_tasks_again() {
 fn a_restarted_follower_reports_the_same_tasks_to_the_leader() {
     let k = kernel_with_welcome();
     let (mut n, q) = clustered_on(&k);
-    assert_eq!(block_on(n.restore(T0)), Ok(crate::Kept::Adopted(1)));
+    assert_eq!(restore(&mut n, &k, T0), Ok(crate::Kept::Adopted(1)));
     n.cluster_boot(T0);
     drain(q.lease);
     n.on_mail(Mail::Lease(LeaseReply::Claimed(false)), T0);

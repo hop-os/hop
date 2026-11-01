@@ -178,13 +178,14 @@ The kernel hands these `hopos.cfg` keys to Hop as `HOPOS_*` env:
 | `hopos.advertise` | `HOPOS_ADVERTISE` | `ip` or `ip:port` as the other nodes reach this one, when the uplink sits behind a NAT; the leader port is port + 1000 |
 | `hopos.ntp` | `HOPOS_NTP` | the time server, `host` or `host:port`, default `pool.ntp.org` |
 
-A lease is a time on the writer's wall clock, and HopOS pins its clock to a
-fixed date until SNTP succeeds. Hop therefore syncs the clock as a step of
-its start, standalone and clustered, and a node without a time server does
-not start (`HOP_FATAL step=clock`, exit 6; the watchdog resets it). After a
-restart of Hop the clock already stands, and the new Hop trusts it
-(`HOP_CLOCK_SYNCED from=state`). A failed hourly sync later is loud
-(`HOP_SNTP_FAIL`) but not fatal: the clock keeps running.
+A lease is a time on the writer's wall clock, a certificate chain needs a
+date, and HopOS pins its clock to a fixed date until SNTP succeeds. Hop
+therefore syncs the clock as a step of its start, standalone and clustered,
+before anything goes out (the object store, a download, the cluster), and a
+node without a time server does not start (`HOP_FATAL step=clock`, exit 6;
+the watchdog resets it). After a restart of Hop the clock already stands,
+and the new Hop trusts it (`HOP_CLOCK_SYNCED from=state`). A failed hourly
+sync later is loud (`HOP_SNTP_FAIL`) but not fatal: the clock keeps running.
 Its first claim is the boot claim: a free lock makes it leader at once. Then:
 
 - leading: it loads the committed state (`HOP_LEADER_LOADING`,

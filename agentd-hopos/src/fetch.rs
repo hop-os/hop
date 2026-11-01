@@ -123,7 +123,7 @@ impl<C: Connect, R: Resolve> leanhttp::Dial for Tcp<'_, C, R> {
 }
 
 /// De webdialer van de bewoner: `leanhttps::WebDial` over [`Tcp`], met de
-/// vertrouwde wandklok als functie en `E` als bron van handshake-entropie.
+/// wandklok als functie en `E` als bron van handshake-entropie.
 pub type Web<'a, C, R, E> = leanhttps::WebDial<Tcp<'a, C, R>, fn() -> Option<u64>, E>;
 
 /// De downloader van artifacts: [`runner::artifact`] over de dial van de
@@ -140,18 +140,18 @@ pub struct HttpImages<C, R> {
 }
 
 impl<C: Connect, R: Resolve> HttpImages<C, R> {
-    /// Een downloader; `trusted_secs` is nu in Unix-seconden, alleen als de
-    /// wandklok vertrouwd is (de keten van https), `wall_secs` de wandklok
-    /// voor de handtekening van `s3://`, en `rng` de willekeur van de handshakes.
+    /// Een downloader; `chain_secs` is nu in Unix-seconden (de datum van de
+    /// keten van https), `wall_secs` dezelfde wandklok voor de handtekening
+    /// van `s3://`, en `rng` de willekeur van de handshakes.
     pub fn new(
         connect: C,
         resolver: R,
-        trusted_secs: fn() -> Option<u64>,
+        chain_secs: fn() -> Option<u64>,
         wall_secs: fn() -> u64,
         rng: applib::rand::Rng,
     ) -> Self {
         Self {
-            client: Client::new(connect, resolver, rng, trusted_secs),
+            client: Client::new(connect, resolver, rng, chain_secs),
             how: Fetch {
                 timeout: HEADER_TIMEOUT,
                 chunk: DOWNLOAD_BUF,

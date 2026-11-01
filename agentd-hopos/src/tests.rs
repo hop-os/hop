@@ -535,7 +535,7 @@ fn a_fresh_resident_stops_what_the_kernel_still_runs() {
     k.0.borrow_mut().state.clear();
     let sys = KernSys::new(k.client(), 4);
     let mut again = Node::new(&cfg(), sys, MemImages::new(BTreeMap::new()), T0);
-    assert_eq!(block_on(again.restore(T0)), Ok(Kept::Clean));
+    assert_eq!(restore(&mut again, &k, T0), Ok(Kept::Clean));
     block_on(again.sweep_strays()).unwrap();
     assert_eq!(k.0.borrow().slots.keys().copied().collect::<Vec<_>>(), [1]);
     assert!(
@@ -1095,6 +1095,22 @@ fn restart_images() -> BTreeMap<String, Vec<u8>> {
 }
 
 /// De volgende Hop over dezelfde kern, zoals de kern hem in slot 2 zet.
+/// De overname zoals de start hem doet: de staat lezen
+/// ([`crate::read_state`], over een eigen verbinding met `k`), dan
+/// [`Node::restore`].
+pub(crate) fn restore<S, I>(
+    n: &mut Node<S, I>,
+    k: &FakeKern,
+    now: u64,
+) -> Result<Kept, crate::Fatal>
+where
+    S: runner::SystemApi + agent::Store,
+    I: Images,
+{
+    let state = block_on(crate::read_state(&mut KernSys::new(k.client(), 4)))?;
+    block_on(n.restore(state, now))
+}
+
 fn next_hop(k: &FakeKern) -> TestNode {
     let sys = KernSys::new(k.client(), 4);
     let mut n = Node::new(&cfg(), sys, MemImages::new(restart_images()), T0);
@@ -1133,7 +1149,7 @@ fn a_restarted_hop_adopts_what_the_kernel_still_runs() {
     drop(n);
 
     let mut again = next_hop(&k);
-    let kept = block_on(again.restore(T0 + 2 * SECOND)).unwrap();
+    let kept = restore(&mut again, &k, T0 + 2 * SECOND).unwrap();
     assert_eq!(kept, Kept::Adopted(1));
     assert!(!kept.is_clean(), "no init jobs over an adopted state");
     let lines = again.take_lines();
@@ -1176,7 +1192,7 @@ fn a_task_whose_slot_stopped_is_not_adopted_and_placed_again() {
 
     let mut again = next_hop(&k);
     assert_eq!(
-        block_on(again.restore(T0 + 2 * SECOND)),
+        restore(&mut again, &k, T0 + 2 * SECOND),
         Ok(Kept::Adopted(0))
     );
     let lines = again.take_lines();
@@ -1215,7 +1231,7 @@ fn the_own_slot_of_hop_is_never_adopted() {
     k.0.borrow_mut().state = blob.replace("\"pid\":1", "\"pid\":2").into_bytes();
     let mut again = next_hop(&k);
     assert_eq!(
-        block_on(again.restore(T0 + 2 * SECOND)),
+        restore(&mut again, &k, T0 + 2 * SECOND),
         Ok(Kept::Adopted(0))
     );
     assert_eq!(again.runner().slot_of(&id), None);
@@ -1228,7 +1244,7 @@ fn an_unreadable_state_stops_hop_before_the_sweep() {
     drop(n);
     k.0.borrow_mut().state = b"{\"version\":1,\"tasks\":{}}".to_vec();
     let mut again = next_hop(&k);
-    let f = block_on(again.restore(T0 + 2 * SECOND)).unwrap_err();
+    let f = restore(&mut again, &k, T0 + 2 * SECOND).unwrap_err();
     assert_eq!(f.code, abi::hopabi::EXIT_INTERNAL);
     assert!(f.why.contains("unreadable"), "{f:?}");
     // Niet leeg begonnen: de binary stopt Hop, de veger komt niet aan de
@@ -1237,11 +1253,11 @@ fn an_unreadable_state_stops_hop_before_the_sweep() {
     assert!(!k.0.borrow().ops.contains(&PrivOp::StopSlot.op()));
     // Ook de staat van de leader in het blob: standalone zouden de jobs weg zijn.
     k.0.borrow_mut().state = br#"{"version":2,"jobs":{},"tasks":{},"leader":"{nee"}"#.to_vec();
-    let f = block_on(next_hop(&k).restore(T0)).unwrap_err();
+    let f = restore(&mut next_hop(&k), &k, T0).unwrap_err();
     assert!(f.why.contains("the leader's state"), "{f:?}");
     // Niets: een schone start.
     let k = FakeKern::new(4);
-    assert_eq!(block_on(next_hop(&k).restore(T0)), Ok(Kept::Clean));
+    assert_eq!(restore(&mut next_hop(&k), &k, T0), Ok(Kept::Clean));
 }
 
 #[test]
@@ -1262,7 +1278,7 @@ fn the_stop_bell_hands_the_last_state_to_the_kernel() {
     );
     // En de volgende neemt hem over.
     assert_eq!(
-        block_on(next_hop(&k).restore(T0 + SECOND)),
+        restore(&mut next_hop(&k), &k, T0 + SECOND),
         Ok(Kept::Adopted(1))
     );
 }
@@ -1609,24 +1625,13 @@ fn a_silent_kernel_at_the_start_set_clock_stops_hop_later_not() {
 
 #[test]
 fn a_restarted_hop_trusts_the_clock_its_predecessor_set() {
-    // Zonder meting staat de klok niet, ook niet voor de volgende.
+    // Een Hop draait alleen met een gezette klok (de start stopt anders),
+    // dus zijn staat zegt het, en de volgende meet niet eerst zelf.
     let (mut n, k) = placed_for_a_restart();
     block_on(n.on_stop(T0 + SECOND));
-    let mut again = next_hop(&k);
-    block_on(again.restore(T0 + 2 * SECOND)).unwrap();
-    assert!(!again.clock());
-    // Na een gelukte SET_CLOCK reist het mee in de staat.
-    let step = block_on(again.set_clock(&sample(), 2_000, false));
+    let state = block_on(crate::read_state(&mut KernSys::new(k.client(), 4)));
     assert!(
-        matches!(step, crate::sntp::ClockStep::Synced(_)),
-        "{step:?}"
-    );
-    assert!(again.clock());
-    block_on(again.on_stop(T0 + 3 * SECOND));
-    let mut third = next_hop(&k);
-    block_on(third.restore(T0 + 4 * SECOND)).unwrap();
-    assert!(
-        third.clock(),
+        state.unwrap().unwrap().clock,
         "the kernel's clock is trusted, no SNTP first"
     );
 }
@@ -1638,7 +1643,7 @@ fn a_silent_kernel_at_the_restore_stops_hop_before_the_sweep() {
     drop(n);
     k.0.borrow_mut().drop_calls = 2;
     let mut again = next_hop(&k);
-    let f = block_on(again.restore(T0 + 2 * SECOND)).unwrap_err();
+    let f = restore(&mut again, &k, T0 + 2 * SECOND).unwrap_err();
     assert_eq!(f.code, abi::hopabi::EXIT_KERNEL);
     assert!(f.why.contains("did not answer STATE_GET"), "{f:?}");
     // Niets gestopt en niets overgenomen: de binary stopt Hop hier

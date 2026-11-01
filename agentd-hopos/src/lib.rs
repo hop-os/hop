@@ -69,7 +69,7 @@ pub use env::{BootConfig, BootError};
 pub use fetch::{Connect, HttpImages, Resolve};
 pub use handoff::Handoff;
 pub use hub::{Answer, Hub, Question};
-pub use node::{Cluster, ClusterParts, Images, Kept, Node, Port, Sink, init_jobs};
+pub use node::{Cluster, ClusterParts, Images, Kept, Node, Port, Sink, init_jobs, read_state};
 
 /// Een fout waarmee de start niet verder kan: de binary stopt Hop ermee
 /// (`fail` in main.rs, `HOP_FATAL`).
