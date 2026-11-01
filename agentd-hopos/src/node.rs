@@ -623,26 +623,19 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         }
     }
 
-    /// Zaait de init-jobs uit `specs` (een JSON-array van jobspecs, zoals
-    /// `hopos.init[]`) bij een schone boot; geeft hoeveel jobs de leader
-    /// kreeg.
+    /// Zaait de init-jobs ([`init_jobs`]) bij een schone boot; geeft
+    /// hoeveel jobs de leader kreeg.
     ///
     /// "Schoon" is aan de aanroeper én hier: de binary roept dit alleen aan
     /// als [`Node::restore`] geen staat vond ([`Kept::is_clean`]; een staat
-    /// zonder jobs is een operator die alles verwijderde), en hier zaait hij alleen in
-    /// een leader zonder jobs. Zo overschrijft een zaadje nooit wat een
-    /// operator of een vorige bewoner neerzette (Go: `agentloop`,
-    /// `cleanBoot && len(l.GetJobs()) == 0`). Een spec die niet klopt, is
-    /// een fout voor het hele setje: luid bij de start, niet half gezaaid.
-    pub async fn seed_init_jobs(&mut self, specs: &str, now: Nanos) -> Result<usize, String> {
+    /// zonder jobs is een operator die alles verwijderde), en hier zaait hij
+    /// alleen in een leader zonder jobs. Zo overschrijft een zaadje nooit wat
+    /// een operator of een vorige bewoner neerzette (Go: `agentloop`,
+    /// `cleanBoot && len(l.GetJobs()) == 0`).
+    pub async fn seed_init_jobs(&mut self, jobs: Vec<Job>, now: Nanos) -> Result<usize, String> {
         if !self.leader.jobs().is_empty() {
             return Ok(0);
         }
-        let v = types::json::parse_str(specs).map_err(|e| format!("init jobs: {e}"))?;
-        let list = v
-            .as_array()
-            .ok_or_else(|| String::from("init jobs: not a JSON array"))?;
-        let jobs = leader::decode_init_jobs(list).map_err(|e| format!("{e}"))?;
         let names: Vec<String> = jobs.iter().map(|j| j.name.clone()).collect();
         let pool = self.runner.pool_largest();
         let mut net = Local {
@@ -1430,6 +1423,18 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             }
         }
     }
+}
+
+/// De init-jobs uit `specs` (een JSON-array van jobspecs, zoals
+/// `hopos.init[]`), getoetst. Een spec die niet klopt, is een fout voor het
+/// hele setje: de binary stopt Hop bij de start (besluit H7, 01-11), niet
+/// half gezaaid en niet stil zonder.
+pub fn init_jobs(specs: &str) -> Result<Vec<Job>, String> {
+    let v = types::json::parse_str(specs).map_err(|e| format!("init jobs: {e}"))?;
+    let list = v
+        .as_array()
+        .ok_or_else(|| String::from("init jobs: not a JSON array"))?;
+    leader::decode_init_jobs(list).map_err(|e| format!("init jobs: {e}"))
 }
 
 /// De taken van de eigen agent; `None` zonder geheugen.

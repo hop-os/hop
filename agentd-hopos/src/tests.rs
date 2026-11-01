@@ -941,7 +941,8 @@ fn a_clean_boot_seeds_the_init_jobs_once() {
     // De headless-vorm: één artifact en geen driver is de hop-driver.
     let specs =
         r#"[{"name":"web","artifacts":[{"url":"http://images/web.elf"}],"memory_limit":33554432}]"#;
-    assert_eq!(block_on(n.seed_init_jobs(specs, T0)), Ok(1));
+    let jobs = crate::init_jobs(specs).unwrap();
+    assert_eq!(block_on(n.seed_init_jobs(jobs.clone(), T0)), Ok(1));
     block_on(n.settle(T0));
     let lines = n.take_lines();
     assert!(
@@ -956,22 +957,21 @@ fn a_clean_boot_seeds_the_init_jobs_once() {
     );
     assert!(k.0.borrow().slots[&1].placed);
     // Een leader met jobs is geen schone boot: niets nog eens.
-    assert_eq!(block_on(n.seed_init_jobs(specs, T0)), Ok(0));
+    assert_eq!(block_on(n.seed_init_jobs(jobs, T0)), Ok(0));
     assert_eq!(k.0.borrow().slots.len(), 1);
 }
 
 #[test]
-fn broken_init_jobs_are_loud_and_seed_nothing() {
+fn broken_init_jobs_are_refused_whole() {
+    // De binary stopt Hop dan bij de start (`HOP_FATAL step=init`).
     for bad in [
         "not json",
         r#"{"name":"web"}"#,
         r#"[{"name":"web","bogus_field":1,"artifacts":[{"url":"http://images/web.elf"}]}]"#,
         r#"[{"artifacts":[{"url":"http://images/web.elf"}]}]"#,
     ] {
-        let (mut n, k) = node();
-        let r = block_on(n.seed_init_jobs(bad, T0));
+        let r = crate::init_jobs(bad);
         assert!(r.is_err(), "{bad}: {r:?}");
-        assert!(k.0.borrow().ops.is_empty(), "{bad}");
     }
 }
 
@@ -1354,8 +1354,8 @@ fn a_restarted_hop_adopts_what_the_kernel_still_runs() {
     );
     placed_matches_the_agent(&mut again);
     // De init-jobs zaaien niet in een leader met jobs.
-    let specs = format!("[{JOB}]");
-    assert_eq!(block_on(again.seed_init_jobs(&specs, T0)), Ok(0));
+    let jobs = crate::init_jobs(&format!("[{JOB}]")).unwrap();
+    assert_eq!(block_on(again.seed_init_jobs(jobs, T0)), Ok(0));
 }
 
 #[test]

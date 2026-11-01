@@ -81,6 +81,7 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::future::{Future, poll_fn};
 use core::pin::pin;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
@@ -107,6 +108,7 @@ use discovery::Discovery;
 use hop_http::{Ask, Chunk, Streams, TcpConn};
 use hopos_runner::KernSys;
 use sync::mpsc::Mailbox;
+use types::Job;
 
 applib::main!(resident);
 
@@ -590,7 +592,7 @@ async fn start_cluster(
     exec: &'static Exec,
     cfg: &BootConfig,
     cc: ClusterConfig,
-    init_jobs: Option<String>,
+    init_jobs: Option<Vec<Job>>,
 ) -> Result<ClusterParts, String> {
     let owner = format!("{}:{}", cfg.node_ip, cfg.leader_port());
     let disc = Discovery::new(owner, cc.ttl_ms);
@@ -700,68 +702,63 @@ async fn wake(
     .await
 }
 
-/// De init-jobs van deze boot: uit de env, of anders uit
-/// [`INIT_JOBS_FILE`] in het volume. `None` als er geen zijn.
+/// De init-jobs van deze boot: uit de env, of anders uit [`INIT_JOBS_FILE`]
+/// in het volume, getoetst. `None` als er geen zijn.
 ///
 /// Over de verbinding van de eigenaar-taak (`c`): een eigen verbinding zou
-/// de vierde zijn naast die van de store-taak en de kloktaak, en de kern
-/// laat Hop er drie toe (`MAX_HOP_CONNS`).
-///
-/// Een kern die op de stat niet antwoordt, is geen ontbrekend bestand maar
-/// een kapotte node: [`fail`], niet stil zonder init-jobs verder.
-async fn init_specs(app: &'static App, cfg: &BootConfig, c: &mut SystemClient) -> Option<String> {
-    if let Some(j) = &cfg.init_jobs {
-        return Some(j.clone());
+/// er een te veel zijn (`MAX_HOP_CONNS`). Geen bestand, of geen schijf (de
+/// kern weigert de stat dan: "no storage layer on board"), is geen
+/// init-jobs. Init-jobs die er zijn maar niet kloppen (te groot, geen
+/// UTF-8, een spec die de leader niet neemt) zijn een node zonder zijn
+/// basis: [`fail`] (besluit H7, 01-11), net als een kern die op de stat of
+/// de lees niet antwoordt.
+async fn init_specs(app: &App, cfg: &BootConfig, c: &mut SystemClient) -> Option<Vec<Job>> {
+    let specs = match &cfg.init_jobs {
+        Some(j) => j.clone(),
+        None => match read_init_file(c).await {
+            Ok(Some(s)) => s,
+            Ok(None) => return None,
+            Err((code, why)) => {
+                fail(app, code, "init", format_args!("{INIT_JOBS_FILE}: {why}")).await
+            }
+        },
+    };
+    match agentd_hopos::init_jobs(&specs) {
+        Ok(jobs) => Some(jobs),
+        Err(e) => fail(app, EXIT_CONFIG, "init", e).await,
     }
+}
+
+/// Leest [`INIT_JOBS_FILE`]; `None` zonder bestand of zonder schijf, een
+/// fout met zijn exitcode.
+async fn read_init_file(c: &mut SystemClient) -> Result<Option<String>, (u64, String)> {
+    use applib::sys::Error;
+    let kern = |e: Error| (EXIT_KERNEL, format!("{e}"));
     let size = match c.stat(INIT_JOBS_FILE).await {
         Ok(s) => usize::try_from(s).unwrap_or(usize::MAX),
-        Err(applib::sys::Error::NotFound { .. }) => return None,
-        Err(
-            e @ (applib::sys::Error::Transport(_)
-            | applib::sys::Error::Timeout
-            | applib::sys::Error::Protocol(_)),
-        ) => {
-            let why = format!("the kernel did not answer the stat of {INIT_JOBS_FILE} ({e})");
-            fail(app, EXIT_KERNEL, "init", why).await
-        }
-        Err(e) => {
-            say!("hop: {INIT_JOBS_FILE}: {e}; no init jobs HOP_INIT_FAIL");
-            return None;
-        }
+        Err(Error::NotFound { .. } | Error::Call { .. }) => return Ok(None),
+        Err(e) => return Err(kern(e)),
     };
     if size > INIT_FILE_MAX {
-        say!(
-            "hop: {INIT_JOBS_FILE} is {size} bytes, limit {INIT_FILE_MAX}; no init jobs HOP_INIT_FAIL"
-        );
-        return None;
+        return Err((EXIT_CONFIG, format!("{size} bytes, limit {INIT_FILE_MAX}")));
     }
     let mut buf = alloc::vec![0u8; size];
     let mut at = 0;
     while at < size {
+        let dst = buf.get_mut(at..).unwrap_or_default();
         match c
-            .read_into(
-                INIT_JOBS_FILE,
-                at as u64,
-                buf.get_mut(at..).unwrap_or_default(),
-            )
+            .read_into(INIT_JOBS_FILE, at as u64, dst)
             .await
+            .map_err(kern)?
         {
-            Ok(0) => break,
-            Ok(n) => at += n,
-            Err(e) => {
-                say!("hop: {INIT_JOBS_FILE}: {e}; no init jobs HOP_INIT_FAIL");
-                return None;
-            }
+            0 => break,
+            n => at += n,
         }
     }
     buf.truncate(at);
-    match String::from_utf8(buf) {
-        Ok(s) => Some(s),
-        Err(_) => {
-            say!("hop: {INIT_JOBS_FILE} is not UTF-8; no init jobs HOP_INIT_FAIL");
-            None
-        }
-    }
+    String::from_utf8(buf)
+        .map(Some)
+        .map_err(|_| (EXIT_CONFIG, String::from("not UTF-8")))
 }
 
 /// Nu in Unix-nanoseconden: de wandklok van de kern (de start eist hem).
@@ -1085,10 +1082,10 @@ async fn resident(app: &'static App) {
     }
     if !clustered
         && kept.is_clean()
-        && let Some(specs) = specs
+        && let Some(jobs) = specs
     {
-        if let Err(e) = node.seed_init_jobs(&specs, now(app)).await {
-            say!("hop: init jobs not seeded: {e} HOP_INIT_FAIL");
+        if let Err(e) = node.seed_init_jobs(jobs, now(app)).await {
+            fail(app, EXIT_INTERN, "init", e).await;
         }
         flush(&mut node);
     }

@@ -69,7 +69,7 @@ pub use env::{BootConfig, BootError};
 pub use fetch::{Connect, HttpImages, Resolve};
 pub use handoff::Handoff;
 pub use hub::{Answer, Hub, Question};
-pub use node::{Cluster, ClusterParts, Images, Kept, Node, Port, Sink};
+pub use node::{Cluster, ClusterParts, Images, Kept, Node, Port, Sink, init_jobs};
 
 // De exitcodes van een Hop die hard stopt, per soort (besluit H9, 01-11). De
 // kern laat elke exit die hij niet vroeg liggen, welke code ook

@@ -42,7 +42,7 @@ use agent::{Discoverer, Election, Elector, LeaseReply, LinkError, Request as Lin
 use api::{Response, TasksScope};
 use leader::{Leader, MemStore, RunReply};
 use types::time::SECOND;
-use types::{Map, Nanos, Time};
+use types::{Job, Map, Nanos, Time};
 
 use super::{Images, Node};
 use crate::VERSION;
@@ -80,9 +80,9 @@ pub struct ClusterParts {
     pub dispatch: &'static DispatchQueue,
     /// Nu in milliseconden op de wandklok (de lease vergelijkt tijden van nodes).
     pub wall_ms: fn() -> u64,
-    /// De init-jobs (een JSON-array), gezaaid als deze node leider wordt op
-    /// een schone staat.
-    pub init_jobs: Option<String>,
+    /// De init-jobs, getoetst bij de start ([`super::init_jobs`]), gezaaid
+    /// als deze node leider wordt op een schone staat.
+    pub init_jobs: Option<Vec<Job>>,
     /// Na hoe lang zonder heartbeat een agent dood is.
     pub node_dead: Nanos,
 }
@@ -99,7 +99,7 @@ pub struct Cluster {
     live: bool,
     /// De verkiezing zei "leid"; de staat-taak leest de gecommitte staat.
     loading: bool,
-    init_jobs: Option<String>,
+    init_jobs: Option<Vec<Job>>,
     node_dead: Nanos,
     next_election: Nanos,
     snapshot_failures: u32,
@@ -729,32 +729,16 @@ impl<S: SystemApi + agent::Store, I: Images> Node<S, I> {
             "hop: became leader, agent {} registered HOP_LEADER leader={own}",
             self.agent.id()
         ));
-        if let Some(specs) = seed {
-            self.seed_cluster_jobs(now, &specs);
+        if let Some(jobs) = seed {
+            self.seed_cluster_jobs(now, jobs);
         }
     }
 
     /// Zaait de init-jobs in een leader zonder jobs (een schone clusterstaat).
-    fn seed_cluster_jobs(&mut self, now: Nanos, specs: &str) {
+    fn seed_cluster_jobs(&mut self, now: Nanos, jobs: Vec<Job>) {
         if !self.leader.jobs().is_empty() {
             return;
         }
-        let jobs = types::json::parse_str(specs)
-            .map_err(|e| format!("{e}"))
-            .and_then(|v| {
-                let list = v
-                    .as_array()
-                    .ok_or_else(|| String::from("not a JSON array"))?;
-                leader::decode_init_jobs(list).map_err(|e| format!("{e}"))
-            });
-        let jobs = match jobs {
-            Ok(j) => j,
-            Err(e) => {
-                self.lines
-                    .push(format!("hop: init jobs: {e} HOP_INIT_FAIL"));
-                return;
-            }
-        };
         let n = jobs.len();
         let pool = self.runner.pool_largest();
         let mut net = Local {
