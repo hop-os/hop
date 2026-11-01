@@ -122,7 +122,7 @@ impl leanhttp::Dial for FakeDial {
 
     async fn dial(&mut self, _: Target<'_>) -> leanhttp::Result<Self::Conn> {
         if self.refuse {
-            return Err(leanhttp::Error::Connect);
+            return Err(leanhttp::Error::Dial);
         }
         Ok(Idle::new(FakeConn::default(), Duration::from_secs(60)))
     }

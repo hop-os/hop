@@ -92,13 +92,13 @@ impl leanhttp::Dial for SlotDial {
         // `https://` al vóór hij hier komt.
         let ip = appnet::resolve(target.host).await.map_err(|e| {
             self.why = Some(e);
-            leanhttp::Error::Connect
+            leanhttp::Error::Dial
         })?;
         let s = TcpStream::connect_timeout(ip, target.port, TIMEOUT)
             .await
             .map_err(|e| {
                 self.why = Some(e);
-                leanhttp::Error::Connect
+                leanhttp::Error::Dial
             })?;
         Ok(Idle::new(TcpConn::new(s, self.exec), IDLE))
     }

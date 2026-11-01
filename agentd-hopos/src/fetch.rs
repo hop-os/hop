@@ -104,7 +104,7 @@ impl<C: Connect, R: Resolve> leanhttp::Dial for Tcp<'_, C, R> {
             Ok(ip) => ip,
             Err(e) => {
                 self.trace.why = Some(format!("resolve {host}: {e}"));
-                return Err(leanhttp::Error::Connect);
+                return Err(leanhttp::Error::Dial);
             }
         };
         let [a, b, c, d] = ip;
@@ -116,7 +116,7 @@ impl<C: Connect, R: Resolve> leanhttp::Dial for Tcp<'_, C, R> {
             Err(e) => {
                 let port = target.port;
                 self.trace.why = Some(format!("connect {host} ({a}.{b}.{c}.{d}:{port}): {e}"));
-                Err(leanhttp::Error::Connect)
+                Err(leanhttp::Error::Dial)
             }
         }
     }

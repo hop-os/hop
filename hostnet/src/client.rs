@@ -179,7 +179,7 @@ impl<'t> Tcp<'t> {
 
     /// Opzoeken en verbinden; de zin van een mislukking als `Err`.
     fn open(&self, host: &str, port: u16) -> Result<TcpStream, (leanhttp::Error, String)> {
-        let connect = leanhttp::Error::Connect;
+        let connect = leanhttp::Error::Dial;
         let addrs = (host, port)
             .to_socket_addrs()
             .map_err(|e| (connect, format!("resolve {host}: {e}")))?;
@@ -243,7 +243,7 @@ fn failure(e: leanhttp::Error, tls: Option<leanhttps::Error>, trace: &mut Trace)
         (Some(t), _) => Error::Dial(format!("tls {}: {t}", trace.host)),
         (None, Some(why)) => Error::Dial(why),
         // `WebDial` faalt zo vóór de verbinding: geen entropie (of geen wortels).
-        (None, None) if e == leanhttp::Error::Connect => Error::Dial(String::from(
+        (None, None) if e == leanhttp::Error::Dial => Error::Dial(String::from(
             "no entropy from the OS (/dev/urandom); https refused",
         )),
         (None, None) => Error::Http(e),

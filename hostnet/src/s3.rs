@@ -71,8 +71,6 @@ pub fn s3_http(timeout: Duration, until: Instant) -> impl leans3::Transport {
         deadline: timeout,
         header: timeout,
         progress: timeout,
-        attempts: 1,
-        ..leans3http::Limits::default()
     };
     http
 }
@@ -109,7 +107,7 @@ fn io_error(e: &leanhttp::Error) -> IoError {
         leanhttp::Error::Io(leanhttp::IoError::TimedOut) => IoError::TimedOut,
         leanhttp::Error::Io(leanhttp::IoError::Closed) => IoError::Closed,
         leanhttp::Error::UnexpectedEof | leanhttp::Error::Eof => IoError::UnexpectedEof,
-        leanhttp::Error::Connect => IoError::Other("connect failed"),
+        leanhttp::Error::Dial => IoError::Other("connect failed"),
         _ => IoError::Other("http failed"),
     }
 }

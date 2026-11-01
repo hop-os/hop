@@ -209,18 +209,25 @@ fn download_s3_missing_credentials() {
     assert!(err.to_string().contains("access_key"), "{err}");
 }
 
-// Go: TestSignS3GetRequest. De SigV4-handtekening zelf is naar leans3
-// verhuisd (en daar getest tegen de AWS-voorbeelden); hier de adressering:
-// dezelfde host en hetzelfde pad als Go ze tekende.
+// Go: TestSignS3GetRequest. De SigV4-handtekening en de URL zelf zijn van
+// leans3 (daar getest tegen de AWS-voorbeelden, `url_for` is intern sinds
+// lean 3.2.0); hier wat Hop uit een s3://-URL maakt: endpoint, bucket,
+// path-style en sleutel, waaruit leans3 dezelfde host en hetzelfde pad
+// bouwt als Go ze tekende.
 #[test]
 fn sign_s3_get_request() {
     let mut a = artifact("s3://mybucket.s3.us-east-1.amazonaws.com/path/to/file.tar.gz");
     a.auth = smap(&[("access_key", "AKIAEXAMPLE"), ("secret_key", "secretkey")]);
     let (client, key) = s3_client(&a).unwrap();
-    let url = client.url_for(&key).unwrap();
-    assert!(url.is_https());
-    assert_eq!(url.host(), "mybucket.s3.us-east-1.amazonaws.com");
-    assert_eq!(url.path(), "/path/to/file.tar.gz");
+    assert_eq!(
+        (
+            client.endpoint.as_str(),
+            client.bucket.as_str(),
+            client.path_style
+        ),
+        ("https://s3.us-east-1.amazonaws.com", "mybucket", false)
+    );
+    assert_eq!(key, "path/to/file.tar.gz");
     assert_eq!(client.access_key_id, "AKIAEXAMPLE");
     assert_eq!(client.region, "us-east-1");
 }
@@ -231,11 +238,15 @@ fn sign_s3_get_request_custom_endpoint() {
     let mut a = artifact("s3://haas-builds.fsn1.your-objectstorage.com/ravendb/file.tar.bz2");
     a.auth = smap(&[("access_key", "AKIAEXAMPLE"), ("secret_key", "secretkey")]);
     let (client, key) = s3_client(&a).unwrap();
-    let url = client.url_for(&key).unwrap();
     assert_eq!(
-        format!("{}{}", url.host(), url.path()),
-        "haas-builds.fsn1.your-objectstorage.com/ravendb/file.tar.bz2"
+        (
+            client.endpoint.as_str(),
+            client.bucket.as_str(),
+            client.path_style
+        ),
+        ("https://fsn1.your-objectstorage.com", "haas-builds", false)
     );
+    assert_eq!(key, "ravendb/file.tar.bz2");
 
     // Met een expliciet endpoint en path-style (MinIO) is de host de bucket.
     a.url = "s3://builds/app.tgz".to_string();
@@ -246,9 +257,15 @@ fn sign_s3_get_request_custom_endpoint() {
         ("path_style", "true"),
     ]);
     let (client, key) = s3_client(&a).unwrap();
-    let url = client.url_for(&key).unwrap();
-    assert!(!url.is_https());
-    assert_eq!((url.host(), url.path()), ("minio:9000", "/builds/app.tgz"));
+    assert_eq!(
+        (
+            client.endpoint.as_str(),
+            client.bucket.as_str(),
+            client.path_style
+        ),
+        ("http://minio:9000", "builds", true)
+    );
+    assert_eq!(key, "app.tgz");
 }
 
 // Go: TestSignS3GetRequestDefaultRegion (zonder netwerk: Go liet het
@@ -261,8 +278,8 @@ fn sign_s3_get_request_default_region() {
     assert_eq!(client.region, "us-east-1");
     assert_eq!(key, "mykey");
     assert_eq!(
-        client.url_for(&key).unwrap().host(),
-        "mybucket.s3.us-east-1.amazonaws.com"
+        (client.endpoint.as_str(), client.bucket.as_str()),
+        ("https://s3.us-east-1.amazonaws.com", "mybucket")
     );
 }
 

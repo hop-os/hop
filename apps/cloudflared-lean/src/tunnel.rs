@@ -42,7 +42,7 @@ use applib::appnet::{self, NetError};
 use applib::rand::Rng;
 use applib::rt::Exec;
 use applib::{App, log};
-use leanh2::{GoAway, Handler, Request, Response, ServeError};
+use leanh2::{Handler, Request, Response, ServeError};
 use leanhttp::IoError;
 use leantls::Roots;
 use sync::{Either, Local, LocalCell, Signal, select};
@@ -331,7 +331,7 @@ async fn connect_once(sh: &'static Shared, index: u8, name: &str, rand: &mut Ran
             core::future::pending::<()>().await;
         }
     };
-    let serve = h2.serve(core::future::pending::<GoAway>());
+    let serve = h2.serve();
     let why = match select(stop(index).wait(), select(watchdog, serve)).await {
         Either::Left(()) => s.end.take().map_or(Why::NotRegistered, Why::Control),
         Either::Right(Either::Left(())) => Why::NotRegistered,

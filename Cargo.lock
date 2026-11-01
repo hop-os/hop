@@ -9,7 +9,7 @@ source = "git+https://github.com/xinix00/HopOS.git?tag=v3.0.20#fc079e8f0366c9f7e
 dependencies = [
  "bounded",
  "dev",
- "leancrypto",
+ "leancrypto 3.1.14",
 ]
 
 [[package]]
@@ -31,7 +31,7 @@ dependencies = [
  "discovery",
  "hostnet",
  "leader",
- "leanhttp",
+ "leanhttp 3.2.0",
  "runner",
  "store",
  "types",
@@ -51,7 +51,7 @@ dependencies = [
  "hop-http",
  "hopos-runner",
  "leader",
- "leanhttp",
+ "leanhttp 3.2.0",
  "leanhttps",
  "leans3",
  "leans3http",
@@ -82,7 +82,7 @@ dependencies = [
  "dev",
  "executor",
  "heap",
- "leanhttp",
+ "leanhttp 3.1.14",
  "leannet",
  "netdev",
  "sync",
@@ -112,7 +112,7 @@ version = "3.0.18"
 dependencies = [
  "applib",
  "leanh2",
- "leanhttp",
+ "leanhttp 3.2.0",
  "leanhttps",
  "leanrand",
  "leantls",
@@ -158,7 +158,7 @@ version = "3.0.18"
 dependencies = [
  "applib",
  "hostnet",
- "leanhttp",
+ "leanhttp 3.2.0",
  "sync",
 ]
 
@@ -168,7 +168,7 @@ version = "3.0.18"
 dependencies = [
  "api",
  "applib",
- "leanhttp",
+ "leanhttp 3.2.0",
  "types",
 ]
 
@@ -188,7 +188,7 @@ dependencies = [
  "applib",
  "hoplib",
  "hostnet",
- "leanhttp",
+ "leanhttp 3.2.0",
  "sync",
 ]
 
@@ -200,7 +200,7 @@ dependencies = [
  "applib",
  "auth",
  "hostnet",
- "leanhttp",
+ "leanhttp 3.2.0",
  "types",
 ]
 
@@ -212,7 +212,7 @@ dependencies = [
  "auth",
  "discovery",
  "hostnet",
- "leanhttp",
+ "leanhttp 3.2.0",
  "store",
  "sync",
 ]
@@ -235,7 +235,7 @@ dependencies = [
  "applib",
  "hoplib",
  "hostnet",
- "leanhttp",
+ "leanhttp 3.2.0",
  "sync",
  "types",
 ]
@@ -244,7 +244,7 @@ dependencies = [
 name = "hostnet"
 version = "3.0.18"
 dependencies = [
- "leanhttp",
+ "leanhttp 3.2.0",
  "leanhttps",
  "leans3",
  "leans3http",
@@ -265,9 +265,14 @@ version = "3.1.14"
 source = "git+https://github.com/xinix00/lean.git?tag=v3.1.14#186de345e59c9e003f684fe6d0c838bab7501498"
 
 [[package]]
+name = "leancrypto"
+version = "3.2.0"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.2.0-rc1#38cb1c9efe09eb43e6f2148ad249da4fc5eb4d89"
+
+[[package]]
 name = "leanh2"
-version = "3.1.14"
-source = "git+https://github.com/xinix00/lean.git?tag=v3.1.14#186de345e59c9e003f684fe6d0c838bab7501498"
+version = "3.2.0"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.2.0-rc1#38cb1c9efe09eb43e6f2148ad249da4fc5eb4d89"
 
 [[package]]
 name = "leanhttp"
@@ -275,11 +280,16 @@ version = "3.1.14"
 source = "git+https://github.com/xinix00/lean.git?tag=v3.1.14#186de345e59c9e003f684fe6d0c838bab7501498"
 
 [[package]]
+name = "leanhttp"
+version = "3.2.0"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.2.0-rc1#38cb1c9efe09eb43e6f2148ad249da4fc5eb4d89"
+
+[[package]]
 name = "leanhttps"
-version = "3.1.14"
-source = "git+https://github.com/xinix00/lean.git?tag=v3.1.14#186de345e59c9e003f684fe6d0c838bab7501498"
+version = "3.2.0"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.2.0-rc1#38cb1c9efe09eb43e6f2148ad249da4fc5eb4d89"
 dependencies = [
- "leanhttp",
+ "leanhttp 3.2.0",
  "leantls",
 ]
 
@@ -290,32 +300,32 @@ source = "git+https://github.com/xinix00/lean.git?tag=v3.1.14#186de345e59c9e003f
 
 [[package]]
 name = "leanrand"
-version = "3.1.14"
-source = "git+https://github.com/xinix00/lean.git?tag=v3.1.14#186de345e59c9e003f684fe6d0c838bab7501498"
+version = "3.2.0"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.2.0-rc1#38cb1c9efe09eb43e6f2148ad249da4fc5eb4d89"
 
 [[package]]
 name = "leans3"
-version = "3.1.14"
-source = "git+https://github.com/xinix00/lean.git?tag=v3.1.14#186de345e59c9e003f684fe6d0c838bab7501498"
+version = "3.2.0"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.2.0-rc1#38cb1c9efe09eb43e6f2148ad249da4fc5eb4d89"
 dependencies = [
- "leancrypto",
+ "leancrypto 3.2.0",
 ]
 
 [[package]]
 name = "leans3http"
-version = "3.1.14"
-source = "git+https://github.com/xinix00/lean.git?tag=v3.1.14#186de345e59c9e003f684fe6d0c838bab7501498"
+version = "3.2.0"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.2.0-rc1#38cb1c9efe09eb43e6f2148ad249da4fc5eb4d89"
 dependencies = [
- "leanhttp",
+ "leanhttp 3.2.0",
  "leans3",
 ]
 
 [[package]]
 name = "leantls"
-version = "3.1.14"
-source = "git+https://github.com/xinix00/lean.git?tag=v3.1.14#186de345e59c9e003f684fe6d0c838bab7501498"
+version = "3.2.0"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.2.0-rc1#38cb1c9efe09eb43e6f2148ad249da4fc5eb4d89"
 dependencies = [
- "leancrypto",
+ "leancrypto 3.2.0",
 ]
 
 [[package]]
@@ -331,7 +341,7 @@ name = "runner"
 version = "3.0.18"
 dependencies = [
  "hostnet",
- "leanhttp",
+ "leanhttp 3.2.0",
  "leans3",
  "types",
 ]
@@ -343,7 +353,7 @@ dependencies = [
  "config",
  "discovery",
  "hostnet",
- "leanhttp",
+ "leanhttp 3.2.0",
  "leans3",
  "types",
 ]

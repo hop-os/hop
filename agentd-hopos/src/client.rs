@@ -190,8 +190,6 @@ impl<C: Connect, R: Resolve> Client<C, R> {
             deadline: budget,
             header: budget,
             progress: budget,
-            attempts: 1,
-            ..leans3http::Limits::default()
         };
         http
     }
