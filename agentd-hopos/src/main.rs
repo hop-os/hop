@@ -98,7 +98,7 @@ use agentd_hopos::{
     Answer, BootConfig, ClusterParts, Connect, EXIT_KERNEL, Handoff, HttpImages, Hub, Images, Kept,
     Node, Port, Question, Resolve,
 };
-use applib::appnet::{self, Endpoint, Net, NetError, TcpListener, TcpStream};
+use applib::appnet::{self, Endpoint, Net, NetError, SystemClient, TcpListener, TcpStream};
 use applib::rand::{JITTER_ROUNDS, Origin, Rng};
 use applib::rt::Exec;
 use applib::{App, EXEC, log};
@@ -343,9 +343,10 @@ impl NtpLink for UdpLink {
 /// `SET_CLOCK`. Luid als het niet lukt; de node draait door, en `https`
 /// wacht op een vertrouwde klok.
 ///
-/// Een eigen system-verbinding per synchronisatie, die daarna weer dichtgaat:
-/// de kern laat een slot twee verbindingen toe, en de eigenaar-taak houdt
-/// de eerste; een uur lang een tweede openhouden voor één call is zonde.
+/// Een eigen system-verbinding per synchronisatie, die vóór de wacht weer
+/// dichtgaat: de kern laat Hop drie verbindingen tegelijk toe
+/// (`MAX_HOP_CONNS`), de eigenaar-taak en de store-taak houden er elk één;
+/// een uur lang een derde openhouden voor één call is zonde.
 async fn clock_task(
     app: &'static App,
     net: &'static Net,
@@ -407,6 +408,7 @@ async fn clock_task(
                 NTP_RETRY
             }
         };
+        drop(sys);
         exec.after(wait).await;
     }
 }
@@ -668,14 +670,17 @@ async fn wake(
 /// De init-jobs van deze boot: uit de env, of anders uit
 /// [`INIT_JOBS_FILE`] in het volume. `None` als er geen zijn.
 ///
+/// Over de verbinding van de eigenaar-taak (`c`): een eigen verbinding zou
+/// de vierde zijn naast die van de store-taak en de kloktaak, en de kern
+/// laat Hop er drie toe (`MAX_HOP_CONNS`).
+///
 /// Een kern die op de stat niet antwoordt, is geen ontbrekend bestand maar
 /// een kapotte node: hard stoppen ([`EXIT_KERNEL`]), niet stil zonder
 /// init-jobs verder.
-async fn init_specs(app: &'static App, cfg: &BootConfig, net: &'static Net) -> Option<String> {
+async fn init_specs(app: &'static App, cfg: &BootConfig, c: &mut SystemClient) -> Option<String> {
     if let Some(j) = &cfg.init_jobs {
         return Some(j.clone());
     }
-    let mut c = net.system_client();
     let size = match c.stat(INIT_JOBS_FILE).await {
         Ok(s) => usize::try_from(s).unwrap_or(usize::MAX),
         Err(applib::sys::Error::NotFound { .. }) => return None,
@@ -953,7 +958,10 @@ async fn resident(app: &'static App) {
         );
     }
 
-    let sys = KernSys::new(net.system_client(), cfg.cores);
+    let mut sys = KernSys::new(net.system_client(), cfg.cores);
+    // De init-jobs nu al, over de eigen verbinding: geclusterd zaait de
+    // leider ze, alleen gebruikt een schone staat ze (hieronder).
+    let mut specs = init_specs(app, &cfg, sys.conn_mut()).await;
     let images = HttpImages::new(
         SlotConnect { net, exec },
         SlotResolver,
@@ -995,8 +1003,7 @@ async fn resident(app: &'static App) {
         Some(cc) => {
             // Geclusterd: de init-jobs zaait wie leider wordt op een schone
             // clusterstaat, niet de boot van deze node.
-            let specs = init_specs(app, &cfg, net).await;
-            match start_cluster(app, net, exec, &seen, cc, specs).await {
+            match start_cluster(app, net, exec, &seen, cc, specs.take()).await {
                 Ok(parts) => Node::new_clustered(&seen, sys, images, now(app, exec), parts),
                 Err(e) => {
                     say!("hop: cannot start the cluster: {e} HOP_SPAWN_FAIL");
@@ -1029,7 +1036,7 @@ async fn resident(app: &'static App) {
     }
     if !clustered
         && kept.is_clean()
-        && let Some(specs) = init_specs(app, &cfg, net).await
+        && let Some(specs) = specs
     {
         if let Err(e) = node.seed_init_jobs(&specs, now(app, exec)).await {
             say!("hop: init jobs not seeded: {e} HOP_INIT_FAIL");
