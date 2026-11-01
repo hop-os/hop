@@ -173,7 +173,7 @@ impl<S: SystemApi> HopRunner<S> {
     /// meer te stoppen (GEMETEN 02-09 op de M4: welcome verwijderd, node meldde
     /// hem nog live). Een slot neemt hij alleen over als de kern het als
     /// draaiend meldt ([`SlotState::Running`]) en het nog van niemand is: een
-    /// slot dat leeg is, stroomt of in quarantaine staat, is niet meer de taak
+    /// slot dat leeg is of stroomt, is niet meer de taak
     /// uit de staat, en die plaatst de leader opnieuw. Slot 0 is de kern.
     /// Idempotent; pakt nooit een kooi af die al uitgedeeld is. Een kern die
     /// de stand niet geeft, is een fout: zonder antwoord is een draaiende
@@ -400,7 +400,7 @@ impl<S: SystemApi> HopRunner<S> {
             }
             // De kern kon de vrijgave niet bevestigen. De kooi blijft van ons, zodat
             // niemand hem hergebruikt op basis van een onbevestigde vrijgave.
-            Err(_) => Err(Error::Quarantined(slot)),
+            Err(e) => Err(Error::System(e)),
         }
     }
 
@@ -519,7 +519,7 @@ impl<S: SystemApi> Runner for HopRunner<S> {
         let len = u64::try_from(chunk.len()).unwrap_or(u64::MAX);
         let total = done.saturating_add(len);
         if total > size {
-            // Afbreken; lukt dat niet, dan blijft de kooi in quarantaine.
+            // Afbreken; lukt dat niet, dan blijft de kooi van ons.
             if self.sys.stop_slot(slot, HOP_STOP_TIMEOUT_MS).await.is_ok() {
                 self.drop_cage(task_id);
             }

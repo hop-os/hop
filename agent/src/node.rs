@@ -833,8 +833,8 @@ impl Agent {
 
     /// Haalt het logische record weg en vraagt de runner één keer om vrijgave.
     ///
-    /// Een mislukte fysieke opruiming is runner-quarantaine; hij mag een dode
-    /// taak nooit eeuwig in de planner laten staan.
+    /// Een mislukte fysieke opruiming is de zaak van de runner; hij mag een
+    /// dode taak nooit eeuwig in de planner laten staan.
     fn remove_and_stop(&mut self, id: &str) -> bool {
         match self.forget(id) {
             Some(e) => {

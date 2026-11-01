@@ -1,8 +1,8 @@
 //! De taak-backends achter één trait: HopOS-slots (via de bevoegde system-API), processen, docker.
 //!
 //! Deze crate bezit de runner-kant van een taak: welke kooi een taak houdt,
-//! de startfase (het image dat de partitie in stroomt), de stop met
-//! quarantaine als de vrijgave niet bevestigd is, en de laatste logregels.
+//! de startfase (het image dat de partitie in stroomt), de stop, en de
+//! laatste logregels.
 //! Hij bezit NIET de beslissing óf een taak draait: dat is de agent, die de
 //! runner via zijn acties aanstuurt (de agent-crate kent deze crate niet; de
 //! executor-taak lijmt ze).
@@ -74,8 +74,6 @@ pub enum Error {
     Busy,
     /// De image-stroom klopt niet: geen lengte, te veel of te weinig bytes.
     Stream(&'static str),
-    /// De kern kon de stop niet bevestigen; de kooi blijft in quarantaine.
-    Quarantined(Slot),
     /// Een fout van de kern die geen plaatsingsfout is.
     System(SysError),
     /// Deze runner heeft geen startfase met een image.
@@ -95,13 +93,6 @@ impl fmt::Display for Error {
                 "runner: {MAX_CONCURRENT_DOWNLOADS} downloads already running"
             ),
             Error::Stream(why) => write!(f, "hop driver: image stream: {why}"),
-            Error::Quarantined(slot) => {
-                write!(
-                    f,
-                    "hop driver: stop of slot {} not confirmed; slot quarantined",
-                    slot.0
-                )
-            }
             Error::System(e) => write!(f, "hop driver: {e}"),
             Error::Unsupported => f.write_str("runner: no image phase"),
             Error::Alloc => f.write_str("runner: out of memory"),
@@ -224,7 +215,7 @@ pub trait Runner {
     /// Stopt een taak. Een onbekende taak is niet van ons: `Ok` zonder iets te doen.
     ///
     /// Een fout betekent dat de vrijgave niet bevestigd is; de runner houdt de
-    /// hulpbron dan zelf in quarantaine, zodat niemand hem hergebruikt.
+    /// hulpbron dan zelf vast, zodat niemand hem hergebruikt.
     fn stop(&mut self, now: u64, task: &TaskRef<'_>) -> impl Future<Output = Result>;
 
     /// De toestand van een taak.

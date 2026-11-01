@@ -29,7 +29,6 @@ struct FakeSlot {
     core_on: bool,
     exited: bool,
     streaming: bool,
-    quarantined: bool,
     exit_code: u64,
     logs: VecDeque<String>,
 }
@@ -92,13 +91,9 @@ impl SystemApi for FakeSys {
                 spec.core_class
             )));
         }
-        // De kern kiest: het laagste slot zonder eigenaar. Een levende,
-        // stromende of in quarantaine gehouden kooi is bezet.
-        let free = |i: &u32| {
-            self.slots
-                .get(i)
-                .is_none_or(|s| !s.core_on && !s.streaming && !s.quarantined)
-        };
+        // De kern kiest: het laagste slot zonder eigenaar. Een levende of
+        // stromende kooi is bezet.
+        let free = |i: &u32| self.slots.get(i).is_none_or(|s| !s.core_on && !s.streaming);
         let slot = (1..=64)
             .find(free)
             .ok_or(SysError::NoCapacity("no free slot".into()))?;
@@ -137,9 +132,6 @@ impl SystemApi for FakeSys {
     async fn stop_slot(&mut self, slot: Slot, _timeout_ms: u64) -> Result<(), SysError> {
         self.stops.push(slot.0);
         if self.stop_err {
-            if let Some(s) = self.slots.get_mut(&slot.0) {
-                s.quarantined = true;
-            }
             return Err(SysError::NotConfirmed);
         }
         if let Some(s) = self.slots.get_mut(&slot.0) {
@@ -159,9 +151,7 @@ impl SystemApi for FakeSys {
         let mut st = SlotStatus::empty();
         if let Some(s) = self.slots.get(&slot.0) {
             st.core_on = s.core_on;
-            st.state = if s.quarantined {
-                SlotState::Quarantined
-            } else if s.streaming {
+            st.state = if s.streaming {
                 SlotState::Streaming
             } else if s.core_on {
                 SlotState::Running
@@ -584,13 +574,13 @@ fn stop_during_successful_start_does_not_publish_ghost() {
 }
 
 #[test]
-fn hop_stop_failure_keeps_slot_quarantined() {
+fn hop_stop_failure_keeps_the_cage() {
     let mut r = runner(11, &[]);
     let pid = run(&mut r, "q", &hop_job()).unwrap();
     r.system_mut().stop_err = true;
     assert_eq!(
         bl(r.stop(0, &TaskRef { id: "q", pid })),
-        Err(Error::Quarantined(Slot(pid)))
+        Err(Error::System(SysError::NotConfirmed))
     );
     assert_eq!(r.slot_of("q"), Some(Slot(pid)));
     // De kooi is niet opnieuw uit te delen: de kern geeft een andere.

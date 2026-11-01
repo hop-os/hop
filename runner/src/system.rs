@@ -43,8 +43,6 @@ pub enum SlotState {
     Streaming,
     /// Gedispatcht.
     Running,
-    /// Beëindiging onbevestigd; de kern hergebruikt het slot niet.
-    Quarantined,
 }
 
 /// Een momentopname van één slot (`SLOT_STATUS`, abi `SlotInfo`).
@@ -180,8 +178,7 @@ pub enum Streamed {
     /// Dit was de laatste byte: de kern plaatste het image en startte de app.
     Placed,
     /// Dit was de laatste byte, maar plaatsen of starten faalde. De kern
-    /// ruimde zijn reserveringen zelf op (of hield het slot in quarantaine
-    /// bij een onbekende dispatch-uitkomst); de aanroeper ruimt alleen zijn
+    /// ruimde zijn reserveringen zelf op; de aanroeper ruimt alleen zijn
     /// boekhouding op.
     Failed(SysError),
 }
@@ -248,7 +245,8 @@ pub trait SystemApi {
     /// Ook voor een half gestroomd slot: dan breekt de kern de stroom af. `Ok`
     /// betekent dat de kern de vrijgave op zich neemt; tot de core uit is meldt
     /// [`SystemApi::slot_status`] hem nog als aan, en wordt hij niet
-    /// hergebruikt. Een fout betekent: niet bevestigd (quarantaine).
+    /// hergebruikt. Een fout betekent: niet bevestigd (de kern antwoordde
+    /// niet); de runner houdt de kooi dan als de zijne.
     fn stop_slot(
         &mut self,
         slot: Slot,

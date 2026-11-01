@@ -847,7 +847,7 @@ fn restart_cleans_ghost_when_stop_wins_during_runner_start() {
 
 #[test]
 fn stop_failure_still_removes_logical_task() {
-    // Het record gaat weg vóór de runner-stop; een mislukte stop is runner-quarantaine.
+    // Het record gaat weg vóór de runner-stop; een mislukte stop is de zaak van de runner.
     let mut a = agent();
     let id = run_ok(&mut a, T0, job("stop"));
     assert!(a.stop_task(&id));

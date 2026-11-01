@@ -274,14 +274,18 @@ impl<C> KernSys<C> {
 
 /// De stand van een slot uit het antwoord van de kern; het cpu-procent
 /// vult [`KernSys::cpu_pct`] uit twee standen.
-pub fn slot_status_of(info: &SlotInfo) -> SlotStatus {
+pub fn slot_status_of(info: &SlotInfo) -> Result<SlotStatus, SysError> {
     let state = match info.slot_state() {
         Some(systemapi::SlotState::Streaming) => SlotState::Streaming,
         Some(systemapi::SlotState::Running) => SlotState::Running,
-        Some(systemapi::SlotState::Quarantined) => SlotState::Quarantined,
+        // De kern quarantaineert niet meer (D3: quarantaine is fataal); de
+        // arm staat er alleen zolang `abi` van de tag de variant nog heeft.
+        Some(systemapi::SlotState::Quarantined) => {
+            return Err(SysError::Refused(String::from("quarantined")));
+        }
         Some(systemapi::SlotState::Empty) | None => SlotState::Empty,
     };
-    SlotStatus {
+    Ok(SlotStatus {
         state,
         core_on: info.core_on != 0,
         app: slot_app(info.app),
@@ -301,7 +305,7 @@ pub fn slot_status_of(info: &SlotInfo) -> SlotStatus {
         fault_esr: info.fault_esr,
         fault_far: info.fault_far,
         cage: String::new(),
-    }
+    })
 }
 
 impl<C: Call> SystemApi for KernSys<C> {
@@ -455,7 +459,7 @@ impl<C: Call> SystemApi for KernSys<C> {
             .map_err(|e| sys_error(&e))?;
         let i = SlotInfo::decode(info.get(..n).unwrap_or_default())
             .map_err(|_| SysError::Unreachable(String::from("malformed slot info")))?;
-        let mut s = slot_status_of(&i);
+        let mut s = slot_status_of(&i)?;
         s.cpu_pct = self.cpu_pct(slot, &i);
         self.last.insert(slot, s.clone());
         Ok(s)
