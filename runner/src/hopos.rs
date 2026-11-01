@@ -227,6 +227,12 @@ impl<S: SystemApi> HopRunner<S> {
     /// 11, op de LicheeRV 16), niet tot de app-cores van Hop, en een bewoner
     /// in een sharegroup zat er vaak boven (F6). Een kern die niet antwoordt,
     /// of een stop die hij niet bevestigt, is een fout: bij de start hard.
+    ///
+    /// TIJDELIJK: de weigering als einde van het bereik. Slots zijn voor Hop
+    /// geen vast aantal ("we vragen altijd past het, zo niet reject", Derek
+    /// 01-11); de juiste vorm is een call waarin de kern de lijst van levende
+    /// slots geeft (kern-werk). Tot die call er is, vraagt de veger slot voor
+    /// slot.
     pub async fn sweep_strays(&mut self) -> core::result::Result<Vec<Slot>, SysError> {
         let mut stopped = Vec::new();
         let mut slot = Slot(2);

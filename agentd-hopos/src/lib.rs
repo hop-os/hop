@@ -86,6 +86,9 @@ pub const EXIT_CONFIG: u64 = 4;
 /// Hop zelf: een taak die niet spawnt, een poort die niet bindt, een staat
 /// die hij niet kan lezen.
 pub const EXIT_INTERN: u64 = 5;
+/// Geen tijd: de eerste SNTP-meting bij de start lukte niet. Zonder klok
+/// geen certificaatdatum en geen lease, dus geen node (Derek, 01-11).
+pub const EXIT_CLOCK: u64 = 6;
 
 /// Een fout waarmee de start niet verder kan: de binary stopt Hop ermee
 /// (`fail` in main.rs, `HOP_FATAL`).

@@ -70,9 +70,9 @@
 //! ELF in slot 1 (env, token, wandklok, poorten 8080 en 9080 doorgezet),
 //! stuurt van buiten een jobspec en eist appspike in slot 2 (29-09 groen).
 //! Wat daar nog niet is: health probes. De cluster over het LAN toetst
-//! `tools/qemu-test-cluster.sh` in deze repo. Zonder DNS-server in de env
-//! en zonder internet faalt de SNTP-stap met één regel (`HOP_SNTP_FAIL`) en
-//! draait Hop door; `http://` naar een adres werkt dan gewoon.
+//! `tools/qemu-test-cluster.sh` in deze repo. Zonder tijdserver (geen DNS,
+//! geen internet, en geen `hopos.ntp` op het LAN) start Hop niet: de eerste
+//! SNTP-meting moet lukken (`HOP_FATAL step=clock`).
 
 #![cfg_attr(target_os = "none", no_std, no_main)]
 
@@ -97,8 +97,8 @@ use agentd_hopos::mail::{DispatchQueue, Inbox, LeaseQueue, LinkQueue, Mail, Nap,
 use agentd_hopos::restart;
 use agentd_hopos::sntp::{self, NtpLink, PACKET, Sample};
 use agentd_hopos::{
-    Answer, BootConfig, ClusterParts, Connect, EXIT_CONFIG, EXIT_INTERN, EXIT_KERNEL, Handoff,
-    HttpImages, Hub, Images, Node, Port, Question, Resolve,
+    Answer, BootConfig, ClusterParts, Connect, EXIT_CLOCK, EXIT_CONFIG, EXIT_INTERN, EXIT_KERNEL,
+    Handoff, HttpImages, Hub, Images, Node, Port, Question, Resolve,
 };
 use applib::appnet::{self, Endpoint, Net, NetError, SystemClient, TcpListener, TcpStream};
 use applib::rand::{JITTER_ROUNDS, Rng};
@@ -147,8 +147,8 @@ const NTP_TIMEOUT: Duration = Duration::from_secs(3);
 /// Het ritme van SNTP na een gelukte synchronisatie (Go: elk uur).
 const NTP_EVERY: Duration = Duration::from_secs(3600);
 
-/// Na een mislukte synchronisatie eerder opnieuw: een node die boot voor
-/// zijn uplink er is, hoeft geen uur op een klok te wachten.
+/// Na een mislukte uurmeting eerder opnieuw: de klok staat en loopt door,
+/// maar een server die even weg was, hoeft geen uur te wachten.
 const NTP_RETRY: Duration = Duration::from_secs(300);
 
 /// Zoveel mislukkingen op rij krijgen een eigen regel; daarna één per
@@ -375,16 +375,21 @@ async fn measure(
     sntp::sync(&mut SlotResolver, &mut link, server, || exec.now(), nonce).await
 }
 
-/// De kloktaak: na `wait`, en daarna elk uur (na een mislukte meting na
-/// [`NTP_RETRY`]), één SNTP-meting als bericht naar de eigenaar ([`CLOCK`]).
+/// De kloktaak: na `wait` (een uur: de start zette de klok al), en daarna elk
+/// uur (na een mislukte meting na [`NTP_RETRY`]), één SNTP-meting als bericht naar de eigenaar ([`CLOCK`]).
 /// De eigenaar zet de klok van de kern met `SET_CLOCK` over de
 /// hoofdverbinding ([`set_clock`]).
 ///
 /// Geen eigen system-verbinding (besluit O9, 01-11): Hop houdt er twee vast,
 /// de eigenaar en de store-taak, en de derde plaats van `MAX_HOP_CONNS` is
 /// voor de ene herverbinding van applib, zoals bij een app. Het net (DNS en
-/// UDP) wacht hier, niet in de eigenaar. Een NTP-server die niet antwoordt is
-/// het net, geen fout van de node: luid, drie keer, dan één op twaalf.
+/// UDP) wacht hier, niet in de eigenaar.
+///
+/// Een uurmeting die mislukt, is niet fataal (anders dan de eerste, bij de
+/// start): de klok van de kern staat dan al en loopt door, een uur drift is
+/// voor een certificaat en een lease van 30 s niets, en een NTP-server die
+/// even weg is, is het net en geen kapotte node. Luid, drie keer, dan één op
+/// twaalf, en na [`NTP_RETRY`] opnieuw.
 async fn clock_task(
     net: &'static Net,
     exec: &'static Exec,
@@ -1043,31 +1048,34 @@ async fn resident(app: &'static App) {
     // een tijd op de wandklok. De tijdserver: `HOPOS_NTP` (`host` of
     // `host:poort`), anders pool.ntp.org.
     //
+    // Die meting moet lukken, standalone en geclusterd ("zonder tijd geen
+    // PC", Derek 01-11): lukt hij niet, dan fail(clock) en reset de watchdog
+    // de node; de koude boot is de enige herkansing. De termijn is die van
+    // één meting: de DNS-vraag en hoogstens `sntp::ATTEMPTS` (3) vragen van
+    // `NTP_TIMEOUT` (3 s), dus rond de tien seconden. Meer vragen is het niet:
+    // UDP herhaalt zelf niets, en drie is wat een verloren datagram nodig
+    // heeft (Go deed hetzelfde); langer wachten maakt een node zonder
+    // tijdserver alleen trager kapot.
+    //
     // Na een herstart zette de vorige Hop de klok al (de staat zegt het): die
     // vertrouwt deze Hop, en hij meet pas over een uur zelf (besluit H5,
     // 01-11). Een herstart hangt zo niet af van een server buiten het LAN.
     let (ntp_host, ntp_port) = sntp::server_from(app.env(sntp::ENV_NTP));
-    let next_sync = if node.clock() {
+    if node.clock() {
         CLOCK_SYNCED.store(true, Relaxed);
         say!(
             "hop: the previous Hop set the kernel's clock; trusting it HOP_CLOCK_SYNCED from=state"
         );
-        NTP_EVERY
     } else {
         match measure(net, exec, &ntp_host, ntp_port, &mut 0).await {
-            Ok(sample) => {
-                set_clock(app, exec, &mut node, &sample, &ntp_host, false).await;
-                NTP_EVERY
-            }
+            Ok(sample) => set_clock(app, exec, &mut node, &sample, &ntp_host, false).await,
             Err(e) => {
-                say!(
-                    "hop: SNTP {ntp_host}:{ntp_port} failed: {e}; the wall clock is not synced, https and the cluster wait for it HOP_SNTP_FAIL"
-                );
-                NTP_RETRY
+                let why = format!("SNTP {ntp_host}:{ntp_port}: {e}; no time, no node");
+                fail(app, EXIT_CLOCK, "clock", why).await
             }
         }
-    };
-    let clock = clock_task(net, exec, ntp_host.clone(), ntp_port, next_sync);
+    }
+    let clock = clock_task(net, exec, ntp_host.clone(), ntp_port, NTP_EVERY);
     if let Err(e) = exec.spawn(clock) {
         fail(
             app,
