@@ -60,7 +60,7 @@
 //! zoals een vaste poort die zou rollen) en `HOP_DOWNLOAD_QUEUE_FULL`. In
 //! een cluster ook `HOP_CLUSTER`, `HOP_CLUSTER_JOIN`,
 //! `HOP_LEADER_LOADING`, `HOP_STATE_LOADED`, `HOP_LEADER_STOPPED`, en de
-//! weigeringen `HOP_CLUSTER_NO_CLOCK`, `HOP_LEASE_STORE`,
+//! weigeringen `HOP_LEASE_STORE`,
 //! `HOP_LINK_FAIL`, `HOP_RELAY_REFUSED`, `HOP_RELAY_FULL`,
 //! `HOP_STATE_SAVE_FAIL`.
 //!
@@ -243,11 +243,6 @@ fn wall_ms() -> u64 {
 /// Nu in Unix-seconden: de klok van de S3-handtekening.
 fn wall_secs() -> u64 {
     wall_ms() / 1000
-}
-
-/// Of SNTP in deze boot lukte: pas dan doet een geclusterde node mee.
-fn clock_ok() -> bool {
-    CLOCK_SYNCED.load(Relaxed)
 }
 
 /// Nu in Unix-seconden, alleen na SNTP: de datum van een certificaatketen.
@@ -645,7 +640,6 @@ async fn start_cluster(
     .map_err(|e| format!("dispatch task: {e}"))?;
     Ok(ClusterParts {
         cfg: cc,
-        clock_ok,
         lease: &LEASE_Q,
         link: &LINK_Q,
         state: &STATE_Q,

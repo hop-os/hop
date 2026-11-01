@@ -657,11 +657,6 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         &self.runner
     }
 
-    /// De runner, muteerbaar (de binary zet er de klok mee).
-    pub fn runner_mut(&mut self) -> &mut HopRunner<S> {
-        &mut self.runner
-    }
-
     /// De regels voor de console sinds de vorige keer.
     ///
     /// Ze gaan ook in de ring van de systeemtaak `hop` (`/logs/hop/stdout`):

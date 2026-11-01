@@ -25,11 +25,10 @@
 //!   elke node vergelijkt hem met de zijne. De kern van HopOS zet de klok
 //!   vast op een datum tot SNTP lukt (`HOPOS_CLOCK_FIXED`); een node met
 //!   zo'n klok ziet elke lease als levend (hij neemt nooit over) of schrijft
-//!   er een die al verlopen is (een ander neemt hem meteen af). Daarom doet
-//!   een geclusterde node pas mee als zijn klok gezet is: tot dan geen
-//!   claim en geen verkiezing, en één regel die zegt waarom
-//!   (`HOP_CLUSTER_NO_CLOCK`). De eerste claim na de klok is de boot-claim:
-//!   is de lock vrij, dan leidt de node meteen.
+//!   er een die al verlopen is (een ander neemt hem meteen af). De start
+//!   zet de klok daarom vóór de cluster, of stopt (`HOP_FATAL step=clock`):
+//!   een node die meedoet, heeft altijd tijd. De eerste claim is de
+//!   boot-claim: is de lock vrij, dan leidt de node meteen.
 //!
 //! Een submodule van `node`, zodat hij bij de staat van de [`Node`] kan
 //! zonder dat die staat buiten de node zichtbaar wordt.
@@ -68,8 +67,6 @@ const LINK_ROUNDS: usize = 4;
 pub struct ClusterParts {
     /// De lock, de sleutels en de lease.
     pub cfg: ClusterConfig,
-    /// Of de wandklok gezet is (SNTP): pas dan doet de node mee.
-    pub clock_ok: fn() -> bool,
     /// De rij naar de lease-taak.
     pub lease: &'static LeaseQueue,
     /// De rij naar de link-taak.
@@ -105,9 +102,6 @@ pub struct Cluster {
     snapshot_failures: u32,
     dropped_total: u64,
     wall_ms: fn() -> u64,
-    clock_ok: fn() -> bool,
-    /// De klok is gezet en de boot-claim is verstuurd: de node doet mee.
-    joined: bool,
     /// De boot-claim staat uit; een raak antwoord maakt de node meteen leider.
     boot_claim: bool,
     label: String,
@@ -185,8 +179,6 @@ impl<S: SystemApi + agent::Store, I: Images> Node<S, I> {
             snapshot_failures: 0,
             dropped_total: 0,
             wall_ms: parts.wall_ms,
-            clock_ok: parts.clock_ok,
-            joined: false,
             boot_claim: false,
             label: parts.cfg.label(),
         });
@@ -199,30 +191,12 @@ impl<S: SystemApi + agent::Store, I: Images> Node<S, I> {
         node
     }
 
-    /// De eerste stap na de start: doe mee zodra de klok gezet is.
+    /// De eerste stap na de start (de klok staat dan): doe mee met de
+    /// boot-claim.
     pub fn cluster_boot(&mut self, now: Nanos) {
-        self.join(now);
-        self.after_cluster(now);
-    }
-
-    /// Doet mee als de klok gezet is: de boot-claim. Geeft of de node meedoet.
-    fn join(&mut self, now: Nanos) -> bool {
         let Some(c) = self.cluster.as_mut() else {
-            return false;
+            return;
         };
-        if c.joined {
-            return true;
-        }
-        if !(c.clock_ok)() {
-            self.once(
-                "no-clock",
-                String::from(
-                    "hop: the wall clock is not synced (SNTP), so lease times mean nothing; this node joins the cluster once it is HOP_CLUSTER_NO_CLOCK",
-                ),
-            );
-            return false;
-        }
-        c.joined = true;
         // Eén claim vóór de eerste tik van de verkiezing: is de lock vrij,
         // dan leidt deze node meteen, zonder de takeover-drempel van vier
         // tikken (zoals de boot-claim van de daemon).
@@ -230,10 +204,10 @@ impl<S: SystemApi + agent::Store, I: Images> Node<S, I> {
         let _ = c.elector.try_become_leader();
         c.next_election = now.saturating_add(ELECTION_TICK);
         self.lines.push(format!(
-            "hop: wall clock synced; joining cluster lock {} HOP_CLUSTER_JOIN",
+            "hop: joining cluster lock {} HOP_CLUSTER_JOIN",
             c.label
         ));
-        true
+        self.after_cluster(now);
     }
 
     /// Of deze node de leader-API bedient: standalone altijd, in een cluster alleen live.
@@ -363,9 +337,6 @@ impl<S: SystemApi + agent::Store, I: Images> Node<S, I> {
 
     /// De tik van de cluster: de lease-cadans, de verkiezing, de snapshot en de takenlijsten.
     pub(super) fn cluster_tick(&mut self, now: Nanos) {
-        if !self.join(now) {
-            return;
-        }
         let Some(c) = self.cluster.as_mut() else {
             return;
         };

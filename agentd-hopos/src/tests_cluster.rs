@@ -680,20 +680,19 @@ fn queues() -> Queues {
     }
 }
 
-fn clustered(clock: fn() -> bool) -> (TestNode, Queues) {
-    clustered_on(&FakeKern::new(4), clock)
+fn clustered() -> (TestNode, Queues) {
+    clustered_on(&FakeKern::new(4))
 }
 
-fn clustered_on(k: &FakeKern, clock: fn() -> bool) -> (TestNode, Queues) {
-    clustered_as(k, &boot_cfg(), clock)
+fn clustered_on(k: &FakeKern) -> (TestNode, Queues) {
+    clustered_as(k, &boot_cfg())
 }
 
-fn clustered_as(k: &FakeKern, cfg: &BootConfig, clock: fn() -> bool) -> (TestNode, Queues) {
+fn clustered_as(k: &FakeKern, cfg: &BootConfig) -> (TestNode, Queues) {
     let sys = KernSys::new(k.client(), 4);
     let q = queues();
     let parts = ClusterParts {
         cfg: hoplock_cfg(),
-        clock_ok: clock,
         lease: q.lease,
         link: q.link,
         state: q.state,
@@ -748,7 +747,7 @@ fn run_on_licheerv(jobs: &[&str]) -> (Vec<u16>, Vec<String>) {
     ];
     let cfg = BootConfig::from_env(env(&pairs), 2, "10.100.0.2").unwrap();
     assert_eq!((cfg.cores, cfg.system_core), (0, true));
-    let (mut n, _q) = clustered_as(&FakeKern::new(4), &cfg, || true);
+    let (mut n, _q) = clustered_as(&FakeKern::new(4), &cfg);
     let codes = jobs
         .iter()
         .map(|j| {
@@ -782,32 +781,12 @@ fn a_system_core_places_what_has_no_core_of_its_own() {
 }
 
 #[test]
-fn without_a_synced_clock_the_node_does_not_join() {
-    let (mut n, q) = clustered(|| false);
-    n.cluster_boot(T0);
-    assert!(said(&mut n, "HOP_CLUSTER_NO_CLOCK"));
-    block_on(n.tick(T0 + 11 * SECOND));
-    assert!(
-        drain(q.lease).is_empty(),
-        "geen claim en geen lees zonder klok"
-    );
-    // De leader-API is dicht, en zegt waarom.
-    let r = routed(
-        &mut n,
-        Port::Leader,
-        &signed_body(Method::Get, "/v1/jobs", ""),
-        T0,
-    );
-    assert_eq!(status(&r), 503);
-}
-
-#[test]
 fn a_leader_that_cannot_read_its_state_does_not_lead() {
     for got in [
         Err(String::from("store did not answer")),
         Ok(Some(b"{nee".to_vec())),
     ] {
-        let (mut n, q) = clustered(|| true);
+        let (mut n, q) = clustered();
         n.cluster_boot(T0);
         n.on_mail(Mail::Lease(LeaseReply::Claimed(true)), T0);
         assert_eq!(drain(q.lease), vec![LeaseOp::Claim]);
@@ -827,7 +806,7 @@ fn a_leader_that_cannot_read_its_state_does_not_lead() {
 
 #[test]
 fn a_free_lock_makes_the_node_leader_with_the_committed_state() {
-    let (mut n, q) = clustered(|| true);
+    let (mut n, q) = clustered();
     n.cluster_boot(T0);
     assert!(said(&mut n, "HOP_CLUSTER_JOIN"));
     assert_eq!(drain(q.lease), vec![LeaseOp::Claim]);
@@ -973,7 +952,7 @@ fn a_free_lock_makes_the_node_leader_with_the_committed_state() {
 
 #[test]
 fn a_held_lock_makes_the_node_follow_and_register_over_the_lan() {
-    let (mut n, q) = clustered(|| true);
+    let (mut n, q) = clustered();
     n.cluster_boot(T0);
     drain(q.lease);
     n.on_mail(Mail::Lease(LeaseReply::Claimed(false)), T0);
@@ -1088,7 +1067,7 @@ fn num(v: &types::json::Value, key: &str) -> f64 {
 fn the_heartbeat_to_the_leader_carries_the_kernel_and_hop() {
     let k = FakeKern::new(4);
     system_slots(&k, 100);
-    let (mut n, q) = clustered_on(&k, || true);
+    let (mut n, q) = clustered_on(&k);
     n.cluster_boot(T0);
     drain(q.lease);
     n.on_mail(Mail::Lease(LeaseReply::Claimed(false)), T0);
@@ -1145,7 +1124,7 @@ fn a_kernel_without_slot_0_leaves_the_kernel_out() {
     system_slots(&k, 100);
     // Een kern van vóór slot 0: de stand van slot 0 is leeg.
     k.0.borrow_mut().system.remove(&0);
-    let (mut n, q) = clustered_on(&k, || true);
+    let (mut n, q) = clustered_on(&k);
     n.cluster_boot(T0);
     n.on_mail(Mail::Lease(LeaseReply::Claimed(true)), T0);
     n.on_mail(Mail::Loaded(Ok(None)), T0);
@@ -1166,7 +1145,7 @@ fn a_kernel_without_slot_0_leaves_the_kernel_out() {
 fn the_leader_shows_the_kernel_and_hop_of_every_agent() {
     let k = FakeKern::new(4);
     system_slots(&k, 100);
-    let (mut n, q) = clustered_on(&k, || true);
+    let (mut n, q) = clustered_on(&k);
     n.cluster_boot(T0);
     n.on_mail(Mail::Lease(LeaseReply::Claimed(true)), T0);
     n.on_mail(Mail::Loaded(Ok(None)), T0);
@@ -1317,7 +1296,7 @@ fn the_leader_shows_the_kernel_and_hop_of_every_agent() {
 
 #[test]
 fn a_displaced_leader_steps_down_and_forgets_its_calls() {
-    let (mut n, q) = clustered(|| true);
+    let (mut n, q) = clustered();
     n.cluster_boot(T0);
     n.on_mail(Mail::Lease(LeaseReply::Claimed(true)), T0);
     n.on_mail(Mail::Loaded(Ok(None)), T0);
@@ -1517,7 +1496,7 @@ fn committed_welcome() -> Vec<u8> {
 /// boot-claim raak, de gecommitte staat geladen, en de settle voorbij.
 fn leader_after_restart(adopt: bool) -> (TestNode, Queues, FakeKern) {
     let k = kernel_with_welcome();
-    let (mut n, q) = clustered_on(&k, || true);
+    let (mut n, q) = clustered_on(&k);
     if adopt {
         assert_eq!(block_on(n.restore(T0)), Ok(crate::Kept::Adopted(1)));
     }
@@ -1565,7 +1544,7 @@ fn a_restarted_leader_does_not_place_its_adopted_tasks_again() {
 #[test]
 fn a_restarted_follower_reports_the_same_tasks_to_the_leader() {
     let k = kernel_with_welcome();
-    let (mut n, q) = clustered_on(&k, || true);
+    let (mut n, q) = clustered_on(&k);
     assert_eq!(block_on(n.restore(T0)), Ok(crate::Kept::Adopted(1)));
     n.cluster_boot(T0);
     drain(q.lease);

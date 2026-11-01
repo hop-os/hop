@@ -185,17 +185,6 @@ where
     r
 }
 
-/// Haalt de bundel op, stroomt hem de kern in en vraagt de flip: [`fetch`]
-/// en dan [`ask`].
-pub async fn flip<S, I>(sys: &mut S, images: &mut I, url: &str, sha256: &str) -> Result<(), String>
-where
-    S: SystemApi + KernFlip,
-    I: Images,
-{
-    let slot = fetch(sys, images, url).await?;
-    ask(sys, slot, sha256).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,7 +241,8 @@ mod tests {
             send: 100,
         };
         let sha = "ab".repeat(32);
-        let r = block_on(flip(&mut sys, &mut img, "http://10.0.2.2/b.flip", &sha));
+        let slot = block_on(fetch(&mut sys, &mut img, "http://10.0.2.2/b.flip")).unwrap();
+        let r = block_on(ask(&mut sys, slot, &sha));
         // De nep-kern kent geen flip: de weigering komt terug als tekst, en
         // het gereserveerde slot is opgeruimd.
         let e = r.unwrap_err();
@@ -275,12 +265,7 @@ mod tests {
             bytes: bundle(),
             send: 50,
         };
-        let r = block_on(flip(
-            &mut sys,
-            &mut img,
-            "http://10.0.2.2/b.flip",
-            &"00".repeat(32),
-        ));
+        let r = block_on(fetch(&mut sys, &mut img, "http://10.0.2.2/b.flip"));
         assert!(r.unwrap_err().contains("ended early"));
         let st = k.0.borrow();
         assert!(st.slots.is_empty(), "bundle slot left behind");
