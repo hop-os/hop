@@ -128,4 +128,8 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # Een tag met een streepje (v3.2.0-rc1) is een release-kandidaat:
+          # een prerelease, dus niet /releases/latest waar gethop.org naar
+          # linkt.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: dist/*
