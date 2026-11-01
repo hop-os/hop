@@ -395,7 +395,9 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
     }
 
     async fn slot_usage(&mut self, slot: Slot) -> SysUsage {
-        let s = self.runner.system_mut().slot_status(slot).await;
+        let Ok(s) = self.runner.system_mut().slot_status(slot).await else {
+            return SysUsage::default();
+        };
         if s.state != SlotState::Running {
             return SysUsage::default();
         }
@@ -479,14 +481,15 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
         };
         drop(blob);
         self.clock = h.clock;
-        let n = self.adopt(now, h).await.map_err(unreadable)?;
+        let n = self.adopt(now, h).await?;
         Ok(Kept::Adopted(n))
     }
 
     /// De overname zelf: de kooien bij de runner, de records bij de agent,
-    /// standalone de leader. Geeft het aantal overgenomen kooien, of waarom
-    /// de staat van de leader in het blob niet te lezen was.
-    async fn adopt(&mut self, now: Nanos, h: Handoff) -> Result<usize, String> {
+    /// standalone de leader. Geeft het aantal overgenomen kooien; een kern
+    /// die de stand van een kooi niet geeft, of een staat van de leader die
+    /// niet te lezen is, is [`Fatal`].
+    async fn adopt(&mut self, now: Nanos, h: Handoff) -> Result<usize, Fatal> {
         let own = self.own_slot;
         let mut want = Vec::new();
         for t in &h.tasks {
@@ -501,7 +504,10 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             }
             want.push((t.id.clone(), Slot(pid)));
         }
-        let adopted = self.runner.adopt_running(&want).await;
+        let adopted = self.runner.adopt_running(&want).await.map_err(|e| Fatal {
+            code: EXIT_KERNEL,
+            why: format!("SLOT_STATUS while adopting: {e}"),
+        })?;
         let total = h.tasks.len();
         let tasks: Vec<types::Task> = h
             .tasks
@@ -519,7 +525,12 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
             if let Some(l) = h.leader
                 && let Err(e) = self.leader.load_committed_state(Some(l.as_bytes()))
             {
-                return Err(format!("the leader's state: {e}"));
+                return Err(Fatal {
+                    code: EXIT_INTERN,
+                    why: format!(
+                        "the kernel's state for Hop is unreadable: the leader's state: {e}"
+                    ),
+                });
             }
             if let Err(e) = self.register_with_placed(now) {
                 self.lines.push(format!(
@@ -1141,7 +1152,11 @@ impl<S: SystemApi + Store, I: Images> Node<S, I> {
                     let pid = u32::try_from(pid).unwrap_or(0);
                     let st = match self.runner.status(ms, &TaskRef { id: &task_id, pid }).await {
                         Ok(RunState::Running) => Status::Running,
-                        Ok(RunState::Failed) | Err(_) => Status::Failed,
+                        Ok(RunState::Failed) => Status::Failed,
+                        // De kern gaf de stand niet (een warme flip onderweg):
+                        // geen meting, de volgende poll vraagt opnieuw. Tot
+                        // besluit H1 er is (de kern-kant van agent A).
+                        Err(_) => continue,
                     };
                     self.agent.on_status(now, &task_id, st);
                     if st == Status::Running {

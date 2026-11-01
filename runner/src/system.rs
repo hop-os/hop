@@ -255,11 +255,13 @@ pub trait SystemApi {
         timeout_ms: u64,
     ) -> impl Future<Output = Result<(), SysError>>;
 
-    /// `SLOT_STATUS`: de toestand van een slot.
+    /// `SLOT_STATUS`: de toestand van een slot, of waarom de kern hem niet gaf.
     ///
     /// `&mut self`: op HopOS is dit een call over de verbinding met de kern
-    /// (applib's system-client), en die verbinding is van één eigenaar.
-    fn slot_status(&mut self, slot: Slot) -> impl Future<Output = SlotStatus>;
+    /// (applib's system-client), en die verbinding is van één eigenaar. Een
+    /// fout gaat naar boven, en de aanroeper beslist: bij de start (overnemen,
+    /// vegen) is hij hard, daarna telt de meting niet.
+    fn slot_status(&mut self, slot: Slot) -> impl Future<Output = Result<SlotStatus, SysError>>;
 
     /// `NEXT_LOG`: haalt de volgende logregel van de app in `buf`, zonder
     /// regeleinde.

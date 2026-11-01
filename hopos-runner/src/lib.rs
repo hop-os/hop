@@ -442,9 +442,9 @@ impl<C: Call> SystemApi for KernSys<C> {
         }
     }
 
-    async fn slot_status(&mut self, slot: Slot) -> SlotStatus {
+    async fn slot_status(&mut self, slot: Slot) -> Result<SlotStatus, SysError> {
         let mut info = [0u8; systemapi::SLOT_INFO_LEN];
-        let got = self
+        let (_, n) = self
             .plain(
                 PrivOp::SlotStatus,
                 u64::from(slot.0),
@@ -452,24 +452,13 @@ impl<C: Call> SystemApi for KernSys<C> {
                 &mut info,
             )
             .await
-            .ok()
-            .and_then(|(_, n)| SlotInfo::decode(info.get(..n).unwrap_or_default()).ok());
-        match got {
-            Some(i) => {
-                let mut s = slot_status_of(&i);
-                s.cpu_pct = self.cpu_pct(slot, &i);
-                self.last.insert(slot, s.clone());
-                s
-            }
-            // Zonder antwoord de laatst bekende stand: een verbinding die even
-            // wegvalt (een kern-flip) is geen crash van elke app. Wie nooit een
-            // stand zag, krijgt een leeg slot.
-            None => self
-                .last
-                .get(&slot)
-                .cloned()
-                .unwrap_or_else(SlotStatus::empty),
-        }
+            .map_err(|e| sys_error(&e))?;
+        let i = SlotInfo::decode(info.get(..n).unwrap_or_default())
+            .map_err(|_| SysError::Unreachable(String::from("malformed slot info")))?;
+        let mut s = slot_status_of(&i);
+        s.cpu_pct = self.cpu_pct(slot, &i);
+        self.last.insert(slot, s.clone());
+        Ok(s)
     }
 
     async fn next_log_line(&mut self, slot: Slot, buf: &mut [u8]) -> Option<usize> {

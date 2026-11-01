@@ -227,17 +227,17 @@ fn a_refused_chunk_is_an_error_and_closes_the_stream() {
 fn status_decodes_slot_info() {
     let (mut s, k) = sys(4);
     let slot = bl(s.start_slot(&spec(ELF.len() as u64))).unwrap();
-    let st = bl(s.slot_status(slot));
+    let st = bl(s.slot_status(slot)).unwrap();
     assert_eq!((st.state, st.core_on), (SlotState::Streaming, false));
     bl(s.stream_image(slot, ELF)).unwrap();
-    let st = bl(s.slot_status(slot));
+    let st = bl(s.slot_status(slot)).unwrap();
     assert_eq!(
         (st.state, st.core_on, st.app),
         (SlotState::Running, true, SlotApp::Ready)
     );
     assert_eq!(st.heartbeat, 7);
     k.0.borrow_mut().slots.get_mut(&1).unwrap().crashed = true;
-    let st = bl(s.slot_status(slot));
+    let st = bl(s.slot_status(slot)).unwrap();
     assert_eq!(
         (st.core_on, st.app, st.exit_code),
         (false, SlotApp::Exited, 1)
@@ -259,12 +259,12 @@ fn status_carries_the_cores_of_the_slot() {
             ..systemapi::SlotInfo::default()
         },
     );
-    let st = bl(s.slot_status(runner::Slot(3)));
+    let st = bl(s.slot_status(runner::Slot(3))).unwrap();
     assert_eq!(
         (st.state, st.cores, st.mem_limit),
         (SlotState::Running, 2, 32 << 20)
     );
-    assert_eq!(bl(s.slot_status(runner::Slot(9))).cores, 0);
+    assert_eq!(bl(s.slot_status(runner::Slot(9))).unwrap().cores, 0);
 }
 
 /// De core van een slot: 0 is de OS-core en een echte core (Hop op arm64
@@ -281,9 +281,9 @@ fn status_carries_the_core_of_the_slot_and_0_is_a_core() {
     };
     k.0.borrow_mut().system.insert(3, info(1, 1));
     k.0.borrow_mut().system.insert(5, info(0, 1));
-    assert_eq!(bl(s.slot_status(runner::Slot(3))).core, Some(1));
-    assert_eq!(bl(s.slot_status(runner::Slot(5))).core, Some(0));
-    assert_eq!(bl(s.slot_status(runner::Slot(9))).core, None);
+    assert_eq!(bl(s.slot_status(runner::Slot(3))).unwrap().core, Some(1));
+    assert_eq!(bl(s.slot_status(runner::Slot(5))).unwrap().core, Some(0));
+    assert_eq!(bl(s.slot_status(runner::Slot(9))).unwrap().core, None);
 }
 
 #[test]

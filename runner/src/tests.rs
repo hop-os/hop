@@ -42,6 +42,8 @@ struct FakeSys {
     classes: BTreeMap<u32, String>,
     cage: String,
     stop_err: bool,
+    /// `SLOT_STATUS` krijgt geen antwoord.
+    status_err: bool,
     /// De plaatsing na de laatste byte faalt (een kapot image).
     place_err: bool,
     stops: Vec<u32>,
@@ -144,7 +146,10 @@ impl SystemApi for FakeSys {
         }
         Ok(())
     }
-    async fn slot_status(&mut self, slot: Slot) -> SlotStatus {
+    async fn slot_status(&mut self, slot: Slot) -> Result<SlotStatus, SysError> {
+        if self.status_err {
+            return Err(SysError::Unreachable("no answer".to_string()));
+        }
         let mut st = SlotStatus::empty();
         if let Some(s) = self.slots.get(&slot.0) {
             st.core_on = s.core_on;
@@ -167,7 +172,7 @@ impl SystemApi for FakeSys {
             st.exit_code = s.exit_code;
             st.cage = self.cage.clone();
         }
-        st
+        Ok(st)
     }
     async fn next_log_line(&mut self, slot: Slot, buf: &mut [u8]) -> Option<usize> {
         let line = self.slots.get_mut(&slot.0)?.logs.pop_front()?;
@@ -352,7 +357,7 @@ fn hop_runner_smp_cores() {
     bl(r.stop(0, &TaskRef { id: "t-smp", pid })).unwrap();
     assert_eq!(r.cages_in_use(), 1);
     assert_eq!(r.slot_of("neighbor"), Some(Slot(2)));
-    assert!(bl(r.system_mut().slot_status(Slot(2))).core_on);
+    assert!(bl(r.system_mut().slot_status(Slot(2))).unwrap().core_on);
 }
 
 #[test]
@@ -610,7 +615,7 @@ fn repeated_hop_stop_cannot_kill_reused_slot() {
         },
     ))
     .unwrap();
-    assert!(bl(r.system_mut().slot_status(Slot(new))).core_on);
+    assert!(bl(r.system_mut().slot_status(Slot(new))).unwrap().core_on);
     assert_eq!(r.slot_of("new"), Some(Slot(new)));
 }
 
@@ -652,7 +657,7 @@ fn kern_picks_the_slot_at_image_begin() {
     bl(r.image_begin(0, "k", IMG.len() as u64)).unwrap();
     assert_eq!(r.slot_of("k"), Some(Slot(1)));
     assert_eq!(
-        bl(r.system_mut().slot_status(Slot(1))).state,
+        bl(r.system_mut().slot_status(Slot(1))).unwrap().state,
         SlotState::Streaming
     );
     bl(r.system_mut().set_clock(1_759_000_000)).unwrap();
@@ -664,13 +669,13 @@ fn hop_runner_adoption_and_reuse_keep_neighbor() {
     let mut r = runner(3, &[]);
     r.system_mut().live(1);
     r.system_mut().live(2);
-    let got = bl(r.adopt_running(&[("smp".into(), Slot(1)), ("shared".into(), Slot(2))]));
+    let got = bl(r.adopt_running(&[("smp".into(), Slot(1)), ("shared".into(), Slot(2))])).unwrap();
     assert_eq!(got, ["smp", "shared"]);
     assert_eq!(run(&mut r, "new", &hop_job()).unwrap(), 3);
     bl(r.stop(0, &TaskRef { id: "smp", pid: 1 })).unwrap();
     assert_eq!(run(&mut r, "again", &hop_job()).unwrap(), 1);
     assert_eq!(r.slot_of("shared"), Some(Slot(2)));
-    assert!(bl(r.system_mut().slot_status(Slot(2))).core_on);
+    assert!(bl(r.system_mut().slot_status(Slot(2))).unwrap().core_on);
 }
 
 #[test]
@@ -695,7 +700,7 @@ fn adoption_takes_only_running_slots_nobody_owns() {
         (String::from("twin"), Slot(2)),
         (String::from("mine"), Slot(1)),
     ];
-    assert_eq!(bl(r.adopt_running(&want)), ["old"]);
+    assert_eq!(bl(r.adopt_running(&want)).unwrap(), ["old"]);
     assert_eq!(r.slot_of("old"), Some(Slot(1)));
     assert_eq!(r.slot_of("gone"), None);
     assert_eq!(r.slot_of("twin"), None, "slot 2 is already mine");
@@ -711,6 +716,20 @@ fn adoption_takes_only_running_slots_nobody_owns() {
 }
 
 #[test]
+fn a_kernel_without_an_answer_adopts_nothing_and_says_so() {
+    // Zonder antwoord is een draaiende kooi geen leeg slot: een fout, en de
+    // start stopt hard (de leader zou hem anders naast de oude plaatsen).
+    let mut r = runner(3, &[]);
+    r.system_mut().live(2);
+    r.system_mut().status_err = true;
+    assert!(matches!(
+        bl(r.adopt_running(&[("kept".into(), Slot(2))])),
+        Err(SysError::Unreachable(_))
+    ));
+    assert_eq!(r.cages_in_use(), 0);
+}
+
+#[test]
 fn adopt_running_restores_logs() {
     let mut r = runner(3, &[]);
     r.system_mut().live(2);
@@ -720,7 +739,10 @@ fn adopt_running_restores_logs() {
         .unwrap()
         .logs
         .push_back("na de herstart".into());
-    assert_eq!(bl(r.adopt_running(&[("kept".into(), Slot(2))])), ["kept"]);
+    assert_eq!(
+        bl(r.adopt_running(&[("kept".into(), Slot(2))])).unwrap(),
+        ["kept"]
+    );
     bl(r.pump_logs(0));
     assert_eq!(tail(&r, 0, "kept"), ["na de herstart"]);
 }

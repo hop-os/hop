@@ -175,14 +175,19 @@ impl<S: SystemApi> HopRunner<S> {
     /// draaiend meldt ([`SlotState::Running`]) en het nog van niemand is: een
     /// slot dat leeg is, stroomt of in quarantaine staat, is niet meer de taak
     /// uit de staat, en die plaatst de leader opnieuw. Slot 0 is de kern.
-    /// Idempotent; pakt nooit een kooi af die al uitgedeeld is.
-    pub async fn adopt_running(&mut self, slots: &[(String, Slot)]) -> Vec<String> {
+    /// Idempotent; pakt nooit een kooi af die al uitgedeeld is. Een kern die
+    /// de stand niet geeft, is een fout: zonder antwoord is een draaiende
+    /// kooi geen leeg slot (dan plaatste de leader hem naast de oude).
+    pub async fn adopt_running(
+        &mut self,
+        slots: &[(String, Slot)],
+    ) -> core::result::Result<Vec<String>, SysError> {
         let mut adopted = Vec::new();
         for (id, slot) in slots {
             if slot.0 < 1 || self.cages.contains_key(id) || self.in_use.contains_key(slot) {
                 continue;
             }
-            if self.sys.slot_status(*slot).await.state != SlotState::Running {
+            if self.sys.slot_status(*slot).await?.state != SlotState::Running {
                 continue;
             }
             if adopted.try_reserve(1).is_err() {
@@ -201,7 +206,7 @@ impl<S: SystemApi> HopRunner<S> {
             self.logs.open(id);
             adopted.push(id.clone());
         }
-        adopted
+        Ok(adopted)
     }
 
     /// Stopt de bewoners die van niemand zijn en geeft hun slots.
@@ -225,7 +230,7 @@ impl<S: SystemApi> HopRunner<S> {
             if self.in_use.contains_key(&slot) {
                 continue;
             }
-            if self.sys.slot_status(slot).await.state != SlotState::Running {
+            if self.sys.slot_status(slot).await.map(|s| s.state) != Ok(SlotState::Running) {
                 continue;
             }
             if self.sys.stop_slot(slot, HOP_STOP_TIMEOUT_MS).await.is_ok() {
@@ -249,7 +254,9 @@ impl<S: SystemApi> HopRunner<S> {
             return (None, None, 0, None);
         }
         let slot = self.slot_of(task.id).unwrap_or(Slot(task.pid));
-        let s = self.sys.slot_status(slot).await;
+        let Ok(s) = self.sys.slot_status(slot).await else {
+            return (None, None, 0, None);
+        };
         (
             s.cpu_pct,
             (s.mem_sys != 0).then_some(s.mem_sys),
@@ -390,7 +397,9 @@ impl<S: SystemApi> HopRunner<S> {
             return;
         }
         cage.fault_logged = true;
-        let s = self.sys.slot_status(slot).await;
+        let Ok(s) = self.sys.slot_status(slot).await else {
+            return;
+        };
         let line = if s.fault_vec != 0 {
             format!(
                 "hop: task failed: stage-2 fault on slot {} (vec {}, ESR {:#x}, FAR {:#x})",
@@ -533,7 +542,8 @@ impl<S: SystemApi> Runner for HopRunner<S> {
                 // Welke kooi kreeg deze taak? De node weet het, en vooraan in
                 // de eigen log komt het heel aan, waar een operator al kijkt
                 // (`hop logs`).
-                let cage = self.sys.slot_status(slot).await.cage;
+                let cage = self.sys.slot_status(slot).await.map(|s| s.cage);
+                let cage = cage.unwrap_or_default();
                 if !cage.is_empty() {
                     self.log(task_id, &cage);
                 }
@@ -580,7 +590,7 @@ impl<S: SystemApi> Runner for HopRunner<S> {
             return Ok(RunState::Running);
         }
         let slot = self.slot_of(task.id).unwrap_or(Slot(task.pid));
-        let s = self.sys.slot_status(slot).await;
+        let s = self.sys.slot_status(slot).await.map_err(Error::System)?;
         if s.core_on {
             return Ok(RunState::Running);
         }
