@@ -12,7 +12,7 @@
 # when:
 #
 #   kernel      HOPOS_BOOT, HOPOS_NET_UP, HOPOS_SYSTEM_UP, HOPOS_HOP_START
-#               slot=1 and Hop's two ports (HOPOS_HOP_PUBLISH);
+#               slot=1 and Hop's two ports (HOPOS_SLOT_PUBLISH);
 #   Hop         HOP_UP and HOP_LEADER from slot 1;
 #   placement   HOP_JOB_PLACED slot=2, "slot 2: 1 port(s) published tcp+udp
 #               on the uplink: :80 HOPOS_SLOT_PUBLISH" and
@@ -124,7 +124,7 @@ all() {
 	)
 }
 
-BOOT_MARKS="HOPOS_BOOT|HOPOS_NET_UP|HOPOS_SYSTEM_UP|HOPOS_HOP_START slot=1 |uplink tcp :8080 -> slot 1 :8080 HOPOS_HOP_PUBLISH|uplink tcp :9080 -> slot 1 :9080 HOPOS_HOP_PUBLISH|slot 1: .*HOP_LEADER|slot 1: .*HOP_UP"
+BOOT_MARKS="HOPOS_BOOT|HOPOS_NET_UP|HOPOS_SYSTEM_UP|HOPOS_HOP_START slot=1 |slot 1: 2 port\\(s\\) published tcp\\+udp on the uplink: :8080 :9080 HOPOS_SLOT_PUBLISH|slot 1: .*HOP_LEADER|slot 1: .*HOP_UP"
 PLACE_MARKS="slot 1: .*HOP_JOB_PLACED slot=2|slot 2: 1 port\\(s\\) published tcp\\+udp on the uplink: :80 HOPOS_SLOT_PUBLISH|slot 2: .*HOPOS_HOPGUI_UP files=[0-9]+ bytes=[0-9]+ port=80"
 STOP_MARKS="slot 2: ports withdrawn from the uplink HOPOS_SLOT_UNPUBLISH"
 RED="HOPOS_PANIC|HOPOS_EXCEPTION|HOPOS_APP_PANIC|HOPOS_HOP_FAULT|HOPOS_HOP_EXIT|HOPOS_HOP_FAIL|HOPOS_SLOT_PUBLISH_FAIL"

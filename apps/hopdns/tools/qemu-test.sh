@@ -22,7 +22,7 @@
 # Groen alleen als:
 #
 #   kern        HOPOS_BOOT, HOPOS_NET_UP, HOPOS_SYSTEM_UP, HOPOS_HOP_START
-#               slot=1 en Hop's twee poorten (HOPOS_HOP_PUBLISH);
+#               slot=1 en Hop's twee poorten (HOPOS_SLOT_PUBLISH);
 #   Hop         HOP_UP en HOP_LEADER via de servicer van slot 1;
 #   welcome     POST aangenomen, HOP_JOB_PLACED, HOPOS_SLOT_PUBLISH :80 en
 #               HOPOS_WELCOME_UP port=80;
@@ -127,7 +127,7 @@ all() {
 	)
 }
 
-BOOT_MARKS="HOPOS_BOOT|HOPOS_NET_UP|HOPOS_SYSTEM_UP|HOPOS_HOP_START slot=1 |uplink tcp :8080 -> slot 1 :8080 HOPOS_HOP_PUBLISH|uplink tcp :9080 -> slot 1 :9080 HOPOS_HOP_PUBLISH|slot 1: .*HOP_LEADER|slot 1: .*HOP_UP"
+BOOT_MARKS="HOPOS_BOOT|HOPOS_NET_UP|HOPOS_SYSTEM_UP|HOPOS_HOP_START slot=1 |slot 1: 2 port\\(s\\) published tcp\\+udp on the uplink: :8080 :9080 HOPOS_SLOT_PUBLISH|slot 1: .*HOP_LEADER|slot 1: .*HOP_UP"
 RED="HOPOS_PANIC|HOPOS_EXCEPTION|HOPOS_APP_PANIC|HOPOS_HOP_FAULT|HOPOS_HOP_EXIT|HOPOS_HOP_FAIL|HOPOS_SLOT_PUBLISH_FAIL|HOPOS_HOPDNS_FAIL|HOPOS_HOPDNS_SELFTEST fail"
 
 WELCOME='{"name":"welcome","driver":"hop","artifacts":[{"url":"http://10.0.2.2:'"$ARTPORT"'/welcome.elf"}],"memory_limit":33554432,"ports":{"http":80}}'
