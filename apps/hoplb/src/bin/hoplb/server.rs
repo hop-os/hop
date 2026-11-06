@@ -13,10 +13,11 @@ use std::sync::mpsc::{self, SyncSender};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use hoplb::admin::Page;
 use hoplb::proxy::{self, Env};
 use hoplb::{Error, Pick, Record, RouteTable};
 use hostnet::{StdConn, block_on};
-use leanhttp::{AsyncRead, AsyncWrite, Close, IoError};
+use leanhttp::{AsyncRead, AsyncWrite, Close, Exchange, IoError, Mux};
 
 use crate::log;
 use crate::owner::{self, GENERATION, Msg};
@@ -65,9 +66,11 @@ pub(crate) fn spawn_admin(listener: &TcpListener, owner: &SyncSender<Msg>) -> st
     for i in 0..ADMIN_WORKERS {
         let l = listener.try_clone()?;
         let owner = owner.clone();
+        let mux =
+            hoplb::admin::mux().map_err(|e| std::io::Error::other(format!("admin routes: {e}")))?;
         std::thread::Builder::new()
             .name(format!("admin-{i}"))
-            .spawn(move || admin(&l, &owner))?;
+            .spawn(move || admin(&l, &owner, &mux))?;
     }
     Ok(())
 }
@@ -190,7 +193,7 @@ fn traffic(l: &TcpListener, owner: SyncSender<Msg>, busy: Arc<AtomicUsize>) {
     }
 }
 
-fn admin(l: &TcpListener, owner: &SyncSender<Msg>) {
+fn admin(l: &TcpListener, owner: &SyncSender<Msg>, mux: &Mux<Page>) {
     loop {
         let stream = match l.accept() {
             Ok((s, _)) => s,
@@ -201,7 +204,12 @@ fn admin(l: &TcpListener, owner: &SyncSender<Msg>) {
             }
         };
         let conn = Capped(StdConn::new(stream, Some(ADMIN_READ_CAP)));
-        let _ = block_on(hoplb::admin::serve(conn, async || scrape(owner)));
+        let _ = block_on(hostnet::serve_conn(
+            conn,
+            async |ex: &mut Exchange<'_, Capped>| {
+                hoplb::admin::handle(ex, mux, async || scrape(owner)).await
+            },
+        ));
     }
 }
 
@@ -212,8 +220,8 @@ fn scrape(owner: &SyncSender<Msg>) -> Option<String> {
     rx.recv_timeout(OWNER_TIMEOUT).ok()
 }
 
-/// Een std-socket met een kap op elke leestermijn (agentd: `Capped`): de
-/// keep-alive van leanhttp (60 s) houdt anders een admin-werker vast.
+/// Een std-socket met een kap op elke leestermijn (agentd: `Capped`): een
+/// stille keep-alive-client houdt een admin-werker hooguit zo lang vast.
 struct Capped(StdConn<TcpStream>);
 
 impl AsyncRead for Capped {

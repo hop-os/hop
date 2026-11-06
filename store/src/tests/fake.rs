@@ -2,8 +2,9 @@
 //!
 //! Eén thread bezit de listener en de nep-staat; geen mutex. Een test die de
 //! staat wil zien, krijgt hem terug bij [`Fake::stop`], samen met het logboek
-//! van alle verzoeken. Elke verbinding wordt met `leanhttp::serve` over een
-//! [`StdConn`] bediend, op de thread zelf met [`block_on`].
+//! van alle verzoeken. Elke verbinding wordt met `hostnet::serve_conn`
+//! (verzoek na verzoek met `leanhttp::serve`) over een [`StdConn`] bediend,
+//! op de thread zelf met [`block_on`].
 
 use std::collections::BTreeMap;
 use std::net::{TcpListener, TcpStream};
@@ -100,7 +101,7 @@ fn run<S>(
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
         let conn = StdConn::new(stream, Some(Duration::from_secs(5)));
-        let _ = block_on(leanhttp::serve(
+        let _ = block_on(hostnet::serve_conn(
             conn,
             async |ex: &mut Exchange<'_, StdConn<TcpStream>>| {
                 let body = ex.read_body_to_end().await?;

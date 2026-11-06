@@ -33,7 +33,7 @@ default = []
 # De host-bin: blokkerende sockets over hop's hostnet, threads als eigenaars.
 std = ["dep:hostnet", "dep:leanhttp", "hoplib/std"]
 # De bewoner: applib (executor, netstack) en leanhttp over applib's TcpConn.
-hopos = ["dep:applib", "dep:abi", "dep:sync", "dep:leanhttp", "hoplib/hopos"]
+hopos = ["dep:applib", "dep:applibhttp", "dep:abi", "dep:sync", "dep:leanhttp", "hoplib/hopos"]
 
 [dependencies]
 # De gedeelde client van de Hop-plugins: ondertekenen (X-Hop-Auth), de
@@ -47,6 +47,9 @@ types = { workspace = true }
 hostnet = { workspace = true, optional = true }
 # De bewoner: de app-runtime, het slot-adres van Hop, de leesbare tabel.
 applib = { workspace = true, features = ["http"], optional = true }
+# De server van de bewoner: een acceptor met een park voor stille
+# keep-alive-verbindingen en een vaste pool werkers rond leanhttp::serve.
+applibhttp = { workspace = true, optional = true }
 abi = { workspace = true, optional = true }
 sync = { workspace = true, optional = true }
 # De server van /metrics en /health, op beide runtimes.

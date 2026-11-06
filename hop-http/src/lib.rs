@@ -7,10 +7,13 @@
 //! - [`TcpConn`]: `leanhttp`'s [`AsyncRead`], [`AsyncWrite`] en [`Close`]
 //!   over een `applib::appnet::TcpStream`, met de fasetermijnen van de
 //!   server op het timerwiel van de executor van de app-core.
-//! - [`serve`]: één verbinding met [`leanhttp::serve`]; per verzoek een
-//!   [`api::Request`] (methode, pad, query, headers, en de body binnen de
-//!   KAM-grens van leanhttp, [`leanhttp::MAX_BODY_BYTES`]), de handler van
-//!   de aanroeper, en het [`Reply`] terug op de draad.
+//! - [`serve`]: één verzoek met [`leanhttp::serve`]: een [`api::Request`]
+//!   (methode, pad, query, headers, en de body binnen de KAM-grens van
+//!   leanhttp, [`leanhttp::MAX_BODY_BYTES`]), de handler van de aanroeper,
+//!   en het [`Reply`] terug op de draad. Een verbinding die mag blijven
+//!   (keep-alive) komt terug als [`Outcome::Kept`]; waar ze wacht tot het
+//!   volgende verzoek, beslist de aanroeper ([`Turn`]: het park van de
+//!   acceptor in `agentd-hopos`).
 //! - [`refuse`]: de luide weigering van een [`api::Effect`] dat deze node
 //!   (nog) niet kan uitvoeren, in plaats van een stil leeg antwoord.
 //! - [`Reply::Stream`]: een open SSE-stroom (`/v1/events`, een log-tail met
@@ -44,7 +47,7 @@ use core::future::Future;
 use core::time::Duration;
 
 use api::{Effect, LogStream, Method, Request, Response};
-use leanhttp::{AsyncRead, AsyncWrite, Close, Conn, Exchange, Next, Source};
+use leanhttp::{AsyncRead, AsyncWrite, Close, Conn, Exchange, Kept, Next, Outcome, Source};
 
 pub use applib::tcp::TcpConn;
 
@@ -259,20 +262,58 @@ pub trait Streams {
     fn done(&mut self);
 }
 
-/// Bedient één verbinding: elk verzoek gaat als [`api::Request`] naar `handler`, het [`Reply`] terug.
+/// Een verbinding voor één verzoek: vers van de acceptor, of terug uit het
+/// park van de acceptor nu het volgende verzoek binnenkomt.
+///
+/// Waarom: leanhttp bedient één verzoek per aanroep (sinds 3.2.0). Een
+/// werker hoort zo bij één verzoek, niet bij een stille keep-alive-
+/// verbinding; die wacht in de acceptor ([`Outcome::Kept`]).
+#[derive(Debug)]
+pub enum Turn<C> {
+    /// Een verse verbinding.
+    New(C),
+    /// Een verbinding die na een vorig verzoek mocht blijven.
+    Again(Kept<C>),
+}
+
+impl<C: Conn> Turn<C> {
+    /// Bedient één verzoek: [`leanhttp::serve`] of [`Kept::serve`].
+    ///
+    /// # Errors
+    ///
+    /// De fout van leanhttp; de verbinding is dan dicht.
+    pub async fn serve<H>(self, handler: H) -> Result<Outcome<C>, Error>
+    where
+        H: AsyncFnMut(&mut Exchange<'_, C>) -> leanhttp::Result,
+    {
+        match self {
+            Self::New(conn) => leanhttp::serve(conn, handler).await,
+            Self::Again(kept) => kept.serve(handler).await,
+        }
+    }
+}
+
+/// Bedient één verzoek op `turn`: het gaat als [`api::Request`] naar `handler`, het [`Reply`] terug.
 ///
 /// Een [`Reply::Stream`] blijft open via `streams`; na zijn
 /// einde, op elk pad, meldt `streams.done()` hem af.
 ///
-/// Keert terug als de verbinding sluit; een fout is er één van leanhttp
-/// (een termijn, een reset) en de verbinding is dan dicht.
-pub async fn serve<C, H, S>(conn: C, mut handler: H, streams: &mut S) -> Result<(), Error>
+/// Geeft de [`Outcome`] van leanhttp: [`Outcome::Kept`] als de verbinding
+/// mag blijven (de aanroeper bepaalt waar ze wacht), anders is ze dicht.
+/// Geen route neemt de verbinding over ([`Outcome::Hijacked`] komt niet
+/// voor). Een fout is er één van leanhttp (een termijn, een reset) en de
+/// verbinding is dan dicht.
+pub async fn serve<C, H, S>(
+    turn: Turn<C>,
+    mut handler: H,
+    streams: &mut S,
+) -> Result<Outcome<C>, Error>
 where
     C: AsyncRead + AsyncWrite + Close,
     H: AsyncFnMut(Request) -> Reply,
     S: Streams,
 {
-    let out = leanhttp::serve(conn, async |ex: &mut Exchange<'_, C>| {
+    turn.serve(async |ex: &mut Exchange<'_, C>| {
         let req = read_request(ex).await?;
         let reply = handler(req).await;
         let Reply::Stream {
@@ -287,11 +328,7 @@ where
         streams.done();
         r
     })
-    .await?;
-    // Geen enkele route neemt de verbinding over; komt er toch een terug,
-    // dan valt hij hier (Drop sluit hem).
-    drop(out);
-    Ok(())
+    .await
 }
 
 /// De bron van een [`Reply::Stream`] voor [`leanhttp::Exchange::stream`]:

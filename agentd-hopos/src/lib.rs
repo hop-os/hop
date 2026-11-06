@@ -19,7 +19,9 @@
 //!   ophaalt en de bytes als berichten teruggeeft, zodat de API nooit op
 //!   een download wacht.
 //! - [`Handoff`]: de overdracht van een verbinding van de acceptor van een
-//!   poort aan een vrije werker uit een vaste pool.
+//!   poort aan een vrije werker uit een vaste pool, en [`Park`]: de
+//!   keep-alive-verbindingen tussen twee verzoeken, bij de acceptor in
+//!   plaats van bij een werker.
 //!
 //! - De cluster (`HOPOS_LOCK_*`): de lock ([`lock`], [`hoplock`], [`s3`]),
 //!   de taken die het net op gaan en hun rijen ([`mail`], [`lease`],
@@ -60,6 +62,7 @@ pub mod lock;
 pub mod mail;
 mod node;
 pub mod objstore;
+mod park;
 pub mod relay;
 pub mod restart;
 pub mod s3;
@@ -70,6 +73,7 @@ pub use fetch::{Connect, HttpImages, Resolve};
 pub use handoff::Handoff;
 pub use hub::{Answer, Hub, Question};
 pub use node::{Cluster, ClusterParts, Images, Kept, Node, Port, Sink, init_jobs, read_state};
+pub use park::{Park, Readable};
 
 /// Een fout waarmee Hop niet verder kan, bij de start of daarna (een kern
 /// die niet antwoordt, besluit H1): de binary stopt Hop ermee (`fail` in

@@ -147,10 +147,20 @@ fn exchange(requests: &str) -> String {
         at: 0,
         out: out.clone(),
     };
-    let _ = block_on(leanhttp::serve(
+    // Verzoek na verzoek, zoals de host-bin (`hostnet::serve_conn`): leanhttp
+    // bedient er één per aanroep en geeft een keep-alive-verbinding terug.
+    let mut out_of = block_on(leanhttp::serve(
         conn,
         async |ex: &mut Exchange<'_, Shared>| serve(ex).await,
     ));
+    loop {
+        out_of = match out_of {
+            Ok(leanhttp::Outcome::Kept(k)) => {
+                block_on(k.serve(async |ex: &mut Exchange<'_, Shared>| serve(ex).await))
+            }
+            Ok(leanhttp::Outcome::Closed | leanhttp::Outcome::Hijacked(_)) | Err(_) => break,
+        };
+    }
     String::from_utf8_lossy(&out.borrow()).into_owned()
 }
 

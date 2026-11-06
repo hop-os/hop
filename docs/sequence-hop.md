@@ -618,7 +618,10 @@ pas daarna [F4].
    wordt het `Effect::Proxy`: standalone in-proces naar de eigen leader,
    geclusterd een doorgifte die de werker zelf uitvoert (`forward::serve`).
 2. **De werker:** leanhttp leest het verzoek (`READ_CAP` 2 s stilte), dan
-   `hub.ask_routed` naar de eigenaar.
+   `hub.ask_routed` naar de eigenaar. Mag de verbinding na het antwoord
+   blijven (keep-alive), dan gaat ze terug naar het park van de acceptor
+   (`Park`, sinds 06-11-2026; hoogstens `PARK_IDLE` 2 s stil), niet naar
+   de werker: een stille client houdt geen werker vast.
 3. **De eigenaar:** `leader_reply`. Leidt hij niet, dan een 503. Anders
    `LeaderApi::handle` met `LeaderCluster` over `Local`: de leader slaat de
    job op, reconcilet en vraagt per plaatsing `Transport::run`:

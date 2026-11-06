@@ -179,7 +179,7 @@ fn http(node: &mut TestNode, port: Port, raw: Vec<u8>) -> (u16, String) {
         out: out.clone(),
     };
     block_on(hop_http::serve(
-        conn,
+        hop_http::Turn::New(conn),
         async |req: Request| reply(node.handle_routed(port, &req, T0).await.unwrap()),
         &mut NoStreams,
     ))
@@ -640,7 +640,7 @@ fn http_once(node: &mut TestNode, port: Port, raw: Vec<u8>) -> (u16, String) {
     };
     let mut none = NoStreams;
     let served = pin!(hop_http::serve(
-        conn,
+        hop_http::Turn::New(conn),
         async |req: Request| reply(node.handle_routed(port, &req, T0).await.unwrap()),
         &mut none,
     ))
@@ -1486,8 +1486,8 @@ fn the_restart_reply_is_out_before_hop_leaves() {
     let why = {
         let mut worker = pin!(async {
             let conn = pool.take(0).await;
-            crate::forward::serve(
-                conn,
+            let out = crate::forward::serve(
+                hop_http::Turn::New(conn),
                 async |req: Request| hub.ask_routed(0, Port::Agent, req).await,
                 &mut none,
                 &mut client,
@@ -1496,6 +1496,8 @@ fn the_restart_reply_is_out_before_hop_leaves() {
             )
             .await
             .unwrap();
+            // De vlag sloot de verbinding: niets gaat terug naar het park.
+            assert!(matches!(out, leanhttp::Outcome::Closed));
             pool.free(0);
         });
         let mut owner = pin!(async {

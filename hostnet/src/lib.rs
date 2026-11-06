@@ -8,6 +8,8 @@
 //!   leanhttp-[`leanhttp::Conn`]. Elke poll leest of schrijft blokkerend en
 //!   is dus meteen `Ready`; de fasetermijnen van leanhttp worden
 //!   socket-termijnen.
+//! - [`serve_conn`]: een verbinding van een serverthread, verzoek na
+//!   verzoek met `leanhttp::serve` (keep-alive op dezelfde thread).
 //! - [`block_on`]: de kleinste executor die daarbij past. Een future die
 //!   alleen [`StdConn`]s pollt, wordt in één ronde klaar; een onverwachte
 //!   `Pending` kost een korte slaap en een nieuwe poll.
@@ -47,6 +49,7 @@ mod client;
 mod conn;
 mod exec;
 mod s3;
+mod serve;
 
 pub use client::{
     Call, Error, HostConn, Http, Open, Reply, Result, Tcp, Trace, Web, WebDialer, entropy,
@@ -55,6 +58,7 @@ pub use client::{
 pub use conn::{Socket, StdConn};
 pub use exec::block_on;
 pub use s3::{S3Response, S3Transport, s3_http};
+pub use serve::serve_conn;
 
 #[cfg(test)]
 mod tests;

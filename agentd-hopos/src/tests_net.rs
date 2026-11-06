@@ -663,7 +663,8 @@ fn no_clock() -> Option<u64> {
 /// met `crowded` als stand van de pool; wat er op de draad kwam.
 fn serve_two(crowded: bool) -> String {
     use crate::forward::{Routed, serve};
-    use hop_http::Reply;
+    use hop_http::{Reply, Turn};
+    use leanhttp::Outcome;
 
     let out = Rc::new(RefCell::new(Vec::new()));
     let conn = Mem {
@@ -677,19 +678,28 @@ fn serve_two(crowded: bool) -> String {
     };
     let mut client = crate::client::Client::new(net, names(), rng(), no_clock);
     let mut none = NoStreams;
-    block_on(serve(
-        conn,
-        async |req: api::Request| {
-            let mut r = api::Response::empty(200);
-            r.body = req.path.into_bytes();
-            Routed::Reply(Reply::Plain(r))
-        },
-        &mut none,
-        &mut client,
-        crate::Port::Leader,
-        || crowded,
-    ))
-    .unwrap();
+    // Zoals de werker in main.rs: één verzoek per beurt, en een
+    // gepijplijnd volgend verzoek meteen erachteraan.
+    let mut turn = Turn::New(conn);
+    loop {
+        let got = block_on(serve(
+            turn,
+            async |req: api::Request| {
+                let mut r = api::Response::empty(200);
+                r.body = req.path.into_bytes();
+                Routed::Reply(Reply::Plain(r))
+            },
+            &mut none,
+            &mut client,
+            crate::Port::Leader,
+            || crowded,
+        ))
+        .unwrap();
+        match got {
+            Outcome::Kept(k) if k.has_buffered() => turn = Turn::Again(k),
+            Outcome::Kept(_) | Outcome::Closed | Outcome::Hijacked(_) => break,
+        }
+    }
     String::from_utf8(out.borrow().clone()).unwrap()
 }
 

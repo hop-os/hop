@@ -24,13 +24,16 @@
 //! bij de stop van het slot) is de fsync, en elk record draagt een
 //! controlegetal zodat een half record nooit als lease terugkomt.
 //!
-//! De vorm (handboek §1 en §2), zoals welcome:
+//! De vorm (handboek §1 en §2):
 //!
-//! - **de acceptor** geeft elke verbinding als waarde aan een vrije werker
-//!   uit een vaste pool van [`WORKERS`];
-//! - **een werker** bezit zijn verbinding, draait leanhttp, en stuurt elke
+//! - **de acceptor** (`applibhttp` uit HopOS) geeft elke verbinding als
+//!   waarde aan een vrije werker uit een vaste pool van [`WORKERS`], en een
+//!   verbinding die na haar antwoord mag blijven (keep-alive), wacht in zijn
+//!   park tot het volgende verzoek: niet bij een werker;
+//! - **een werker** bedient één verzoek met leanhttp, en stuurt de
 //!   store-operatie als bericht ([`Ask`]) naar de brievenbus van de store;
-//!   de uitkomst komt terug over zijn eigen rij;
+//!   de uitkomst komt terug op de antwoordplek van die werker
+//!   ([`ANSWERS`], `Ctx::worker`);
 //! - **de store-taak** is de enige eigenaar van de store en van de
 //!   system-client: één operatie tegelijk, dus elke compare-and-swap is
 //!   lineariseerbaar zonder slot.
@@ -46,25 +49,24 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::string::ToString;
-use alloc::vec::Vec;
-use core::cell::Cell;
 use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use core::time::Duration;
 
-use applib::appnet::{self, SystemClient, TcpListener, TcpStream};
+use applib::appnet::{self, SystemClient, TcpListener};
 use applib::rt::Exec;
 use applib::sys;
 use applib::tcp::TcpConn;
 use applib::{App, EXEC, log};
+use applibhttp::Ctx;
 use hoplockserver::http::{self, Unanswered};
 use hoplockserver::server::{Done, Op, run};
 use hoplockserver::volume::{Volume, VolumeError, VolumeStore};
 use hoplockserver::{DEFAULT_PORT, Server};
 use leanhttp::Exchange;
-use sync::Local;
 use sync::mpsc::Mailbox;
-use sync::spsc::{Channel, Receiver, Sender};
+use sync::{Oneshot, oneshot};
 
 applib::main!(hoplock);
 
@@ -76,18 +78,16 @@ fn main() {}
 /// De map van de store zonder `HOPLOCK_DATA`.
 const DEFAULT_DATA: &str = "/data";
 
-/// De werkers: zoveel verbindingen tegelijk. Hop's client opent per
+/// De werkers: zoveel verzoeken tegelijk. Hop's client opent per
 /// verzoek een verse verbinding en een verzoek duurt een paar
 /// system-calls; vier is ruim voor een cluster van tientallen nodes, en de
 /// rest wacht kort op de eerste die vrijkomt.
 const WORKERS: usize = 4;
 
-/// De langste stilte op een keep-alive-verbinding: Go's `ReadHeaderTimeout`.
-const READ_CAP: Duration = Duration::from_secs(5);
-
-/// Hoe vaak de acceptor kijkt of er een werker vrij is, als ze alle vier
-/// bezig zijn (een koud pad, zoals in welcome).
-const BUSY_POLL: Duration = Duration::from_millis(5);
+/// Zoveel stille keep-alive-verbindingen houdt het park; daarboven gaat een
+/// verbinding na haar antwoord dicht. Hop's client houdt er hoogstens een
+/// per node open.
+const PARKED: usize = 32;
 
 /// Om de zoveel verzoeken één logregel. Een lease wordt elke paar seconden
 /// vernieuwd; per verzoek loggen zou de console vullen.
@@ -96,32 +96,34 @@ const LOG_EVERY: u64 = 1000;
 /// Verzoeken sinds de start (een teller, dus een atomic).
 static REQUESTS: AtomicU64 = AtomicU64::new(0);
 
-/// De rij naar elke werker: één verbinding tegelijk.
-static CONNS: Local<[Channel<TcpStream, 1>; WORKERS]> =
-    Local::new([const { Channel::new() }; WORKERS]);
+/// De kap op elke leestermijn van een verzoek (kop en body): Go's
+/// `ReadHeaderTimeout`. Tot 06-11-2026 ook de stilte tussen twee
+/// verzoeken; die is nu van het park ([`IDLE`]).
+const READ_CAP: Duration = Duration::from_secs(5);
 
-/// Welke werker een verbinding heeft: de acceptor zet de vlag, de werker
-/// wist hem; nooit over een `.await` geleend.
-static BUSY: Local<[Cell<bool>; WORKERS]> = Local::new([const { Cell::new(false) }; WORKERS]);
+/// Hoe lang een keep-alive-verbinding stil in het park mag staan: dezelfde
+/// 5 s als toen de werker haar zelf vasthield ([`READ_CAP`]).
+const IDLE: Duration = Duration::from_secs(5);
+
+/// De server: acceptor, park en werkers (`applibhttp`).
+static HTTP: applibhttp::Http<WORKERS, PARKED> = applibhttp::Http::new()
+    .with_read_cap(READ_CAP)
+    .with_idle(IDLE);
 
 /// De brievenbus van de store-taak. Elke werker heeft hoogstens één vraag
 /// uitstaan, dus [`WORKERS`] plaatsen is nooit vol.
 static ASKS: Mailbox<Ask, WORKERS> = Mailbox::new();
 
-/// Per werker de rij terug van de store-taak.
-static ANSWERS: Local<[Channel<Done, 1>; WORKERS]> =
-    Local::new([const { Channel::new() }; WORKERS]);
+/// Per werker (`Ctx::worker` van `applibhttp`) de plek voor het antwoord
+/// van de store-taak. Een werker drijft zijn verzoek af tot het antwoord er
+/// is (leanhttp breekt een handler niet af, en de vraag heeft geen
+/// termijn), dus op een plek ligt nooit een antwoord van een eerder verzoek.
+static ANSWERS: [Oneshot<Done>; WORKERS] = [const { Oneshot::new() }; WORKERS];
 
 /// Een vraag aan de store-taak: de operatie en welke werker wacht.
 struct Ask {
     worker: usize,
     op: Op,
-}
-
-/// Wat elke werker deelt: gezet vóór de eerste spawn, daarna alleen gelezen.
-struct Shared {
-    exec: &'static Exec,
-    server: Server,
 }
 
 /// De system-client als volume: de bestandscalls van de kern.
@@ -207,66 +209,31 @@ async fn hoplock(app: &'static App) {
     }
     let auth = if server.has_auth() { "on" } else { "off" };
     let key_len = server.key_len();
-    let shared: &'static Shared =
-        alloc::boxed::Box::leak(alloc::boxed::Box::new(Shared { exec, server }));
-    let Some(q) = Queues::split() else {
-        return fail(app, "worker queues", &"split twice").await;
-    };
-    let Queues {
-        mut to_workers,
-        to_answers,
-        receivers,
-    } = q;
-    if let Err(e) = exec.spawn(store_task(store, to_answers)) {
+    let server: &'static Server = Box::leak(Box::new(server));
+    if let Err(e) = exec.spawn(store_task(store)) {
         return fail(app, "spawn the store task", &e).await;
-    }
-    for (i, (conns, answers)) in receivers.into_iter().enumerate() {
-        if let Err(e) = exec.spawn(worker(i, conns, answers, shared)) {
-            return fail(app, "spawn a worker", &e).await;
-        }
     }
     let [a, b, c, d] = net.ip();
     log!(
         "hoplockserver: serving on {a}.{b}.{c}.{d}:{port} (data={data}, auth={auth} ({key_len} chars), {WORKERS} workers) HOPOS_HOPLOCK_UP keys={keys}"
     );
-    accept(listener, &mut to_workers, exec).await;
+    // Een verbinding die eindigt met een termijn of een reset is een client
+    // die wegging; dat is geen logregel waard (applibhttp logt niet).
+    let handler: &'static _ = Box::leak(Box::new(
+        async |ex: &mut Exchange<'_, TcpConn>, ctx: &Ctx| {
+            count_request();
+            http::exchange(ex, server, |op| ask(ctx.worker, op)).await
+        },
+    ));
+    // Keert alleen terug als er geen werker te spawnen was.
+    HTTP.run_with(exec, listener, handler).await;
+    fail(app, "spawn a worker", &"the task table is full").await;
 }
 
 /// Een start die niet lukt: één regel, en de app stopt met code 1.
 async fn fail(app: &'static App, what: &str, e: &dyn core::fmt::Display) {
     log!("hoplockserver: {what}: {e} HOPOS_HOPLOCK_FAIL");
     app.shutdown(1).await;
-}
-
-/// De rijen van de werkers, één keer gesplitst: de acceptor krijgt de
-/// zenders naar de werkers, de store-taak de zenders terug, en elke werker
-/// zijn twee ontvangers.
-struct Queues {
-    to_workers: Vec<Sender<'static, TcpStream, 1>>,
-    to_answers: Vec<Sender<'static, Done, 1>>,
-    receivers: Vec<(Receiver<'static, TcpStream, 1>, Receiver<'static, Done, 1>)>,
-}
-
-impl Queues {
-    /// Splitst alle rijen; `None` als dat al gebeurd was of het geheugen op is.
-    fn split() -> Option<Queues> {
-        let mut q = Queues {
-            to_workers: Vec::new(),
-            to_answers: Vec::new(),
-            receivers: Vec::new(),
-        };
-        q.to_workers.try_reserve_exact(WORKERS).ok()?;
-        q.to_answers.try_reserve_exact(WORKERS).ok()?;
-        q.receivers.try_reserve_exact(WORKERS).ok()?;
-        for (c, a) in CONNS.get().iter().zip(ANSWERS.get()) {
-            let (ctx, crx) = c.split()?;
-            let (atx, arx) = a.split()?;
-            q.to_workers.push(ctx);
-            q.to_answers.push(atx);
-            q.receivers.push((crx, arx));
-        }
-        Some(q)
-    }
 }
 
 /// De poort uit `ER_PORT_HTTP`, of [`DEFAULT_PORT`] zonder of bij onzin
@@ -285,7 +252,7 @@ fn port_of(env: Option<&str>) -> u16 {
 }
 
 /// De store-taak: de enige eigenaar van de store en de system-client.
-async fn store_task(mut store: VolumeStore<SysVolume>, mut answers: Vec<Sender<'static, Done, 1>>) {
+async fn store_task(mut store: VolumeStore<SysVolume>) {
     let mut corrupt_logged = 0u64;
     loop {
         let ask = ASKS.recv().await;
@@ -301,92 +268,18 @@ async fn store_task(mut store: VolumeStore<SysVolume>, mut answers: Vec<Sender<'
                 );
             }
         }
-        // Elke werker heeft één vraag uit en een rij van één: nooit vol.
-        if let Some(tx) = answers.get_mut(ask.worker) {
-            let _ = tx.try_send(done);
+        if let Some(reply) = ANSWERS.get(ask.worker) {
+            reply.put(done);
         }
     }
 }
 
-/// De acceptor: elke verbinding naar de eerste vrije werker.
-async fn accept(
-    listener: TcpListener,
-    senders: &mut [Sender<'static, TcpStream, 1>],
-    exec: &'static Exec,
-) {
-    loop {
-        let mut stream = match listener.accept().await {
-            Ok(s) => s,
-            Err(e) => {
-                log!("hoplockserver: accept: {e} HOPOS_HOPLOCK_ACCEPT");
-                exec.after(Duration::from_millis(100)).await;
-                continue;
-            }
-        };
-        loop {
-            match hand_off(stream, senders) {
-                None => break,
-                Some(back) => {
-                    stream = back;
-                    exec.after(BUSY_POLL).await;
-                }
-            }
-        }
-    }
-}
-
-/// Geeft `stream` aan een vrije werker; alle werkers bezig is `Some` terug.
-fn hand_off(stream: TcpStream, senders: &mut [Sender<'static, TcpStream, 1>]) -> Option<TcpStream> {
-    let busy = BUSY.get();
-    let free = senders
-        .iter_mut()
-        .zip(busy.iter())
-        .find(|(tx, b)| !b.get() && tx.free() > 0);
-    match free {
-        Some((tx, b)) => match tx.try_send(stream) {
-            Ok(()) => {
-                b.set(true);
-                None
-            }
-            Err(sync::Full(back)) => Some(back),
-        },
-        None => Some(stream),
-    }
-}
-
-/// Eén werker: wacht op een verbinding, bedient hem met leanhttp tot hij
-/// sluit, en meldt zich weer vrij.
-async fn worker(
-    i: usize,
-    mut conns: Receiver<'static, TcpStream, 1>,
-    mut answers: Receiver<'static, Done, 1>,
-    shared: &'static Shared,
-) {
-    loop {
-        let stream = conns.recv().await;
-        let conn = TcpConn::new(stream, shared.exec).with_read_cap(READ_CAP);
-        // Een verbinding die eindigt met een termijn of een reset is een
-        // client die wegging; dat is geen logregel waard.
-        let _ = leanhttp::serve(conn, async |ex: &mut Exchange<'_, TcpConn>| {
-            count_request();
-            http::exchange(ex, &shared.server, |op| ask(i, op, &mut answers)).await
-        })
-        .await;
-        if let Some(b) = BUSY.get().get(i) {
-            b.set(false);
-        }
-    }
-}
-
-/// Stuurt `op` naar de store-taak en wacht op de uitkomst.
-async fn ask(
-    worker: usize,
-    op: Op,
-    answers: &mut Receiver<'static, Done, 1>,
-) -> Result<Done, Unanswered> {
-    ASKS.try_send(Ask { worker, op })
-        .map_err(|_| Unanswered::Busy)?;
-    Ok(answers.recv().await)
+/// Stuurt `op` naar de store-taak en wacht op de uitkomst voor werker `worker`.
+async fn ask(worker: usize, op: Op) -> Result<Done, Unanswered> {
+    let reply = ANSWERS.get(worker).ok_or(Unanswered::Busy)?;
+    oneshot::call(&ASKS, reply, Ask { worker, op })
+        .await
+        .map_err(|_| Unanswered::Busy)
 }
 
 /// Telt een verzoek, en logt er één regel over om de [`LOG_EVERY`].

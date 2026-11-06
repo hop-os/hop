@@ -32,17 +32,18 @@ bench = false
 [features]
 default = []
 std = ["dep:hostnet"]
-hopos = ["dep:applib", "dep:sync"]
+hopos = ["dep:applib", "dep:applibhttp"]
 
 [dependencies]
 # HTTP/1.1 zonder TLS, dezelfde tag als Hop en HopOS.
 leanhttp = { workspace = true }
 # De host-kant: std-sockets als leanhttp-verbinding en een block_on.
 hostnet = { workspace = true, optional = true }
-# De app-runtime van HopOS met de TcpConn-brug, en de rij en de tabel van
-# de werkerpool (dezelfde vorm als apps/welcome).
+# De app-runtime van HopOS met de TcpConn-brug, en de server van HopOS:
+# een acceptor met een park voor stille keep-alive-verbindingen en een
+# vaste pool werkers rond leanhttp::serve.
 applib = { workspace = true, features = ["http"], optional = true }
-sync = { workspace = true, optional = true }
+applibhttp = { workspace = true, optional = true }
 
 [lints]
 workspace = true

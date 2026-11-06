@@ -20,7 +20,8 @@ use core::fmt;
 use types::json::{self, Value};
 use types::{Agent as AgentRecord, Job, Nanos, Telemetry, Time};
 
-use crate::{Method, Request, Response, check_auth, reply, s};
+use crate::routes::{Lookup, Routes, value};
+use crate::{Request, Response, check_auth, reply, s};
 
 /// Een weigering van de leader bij een update.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -242,11 +243,97 @@ pub fn tasks_reply(
     )
 }
 
+/// Een route van de leader-API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Route {
+    /// `/health`, elke methode, vóór de HMAC.
+    Health,
+    /// `GET /v1/tasks`.
+    Tasks,
+    /// `GET /v1/jobs/{naam}/status`.
+    JobStatus,
+    /// Elke andere `GET` onder `/v1/jobs/`: eindigt hij op `/status` (een
+    /// lege naam, of een naam met een `/`), dan de 400 van
+    /// [`job_status`], anders 404.
+    JobGet,
+    /// `GET /v1/events`.
+    Events,
+    /// `GET /v1/agents/{id}/capacity`.
+    AgentCapacity,
+    /// `GET /v1/agents/{id}/logs/{taak}/{stroom}`; de rest van het pad
+    /// toetst [`agent_route`] (400 als hij niet klopt).
+    AgentLogs,
+    /// `POST /v1/jobs`.
+    Apply,
+    /// `GET /v1/agents`.
+    Agents,
+    /// `POST /v1/agents`.
+    Register,
+    /// `POST /v1/heartbeat`.
+    Heartbeat,
+    /// `GET /v1/jobs`.
+    Jobs,
+    /// `GET /v1/status`.
+    Status,
+    /// `POST /v1/notify`.
+    Notify,
+    /// `DELETE /v1/agents/{id}`.
+    DeleteAgent,
+    /// `DELETE /v1/jobs/{naam}`.
+    DeleteJob,
+    /// `PATCH /v1/jobs/{naam}/priority`.
+    Priority,
+    /// Elke andere `PATCH` onder `/v1/jobs/`: eindigt hij op `/priority`,
+    /// dan [`patch_priority`] zoals vroeger (die knipt de naam zelf),
+    /// anders 404.
+    PatchJob,
+}
+
+/// De routetabel van de leader-API.
+///
+/// Een pad dat wel bestaat maar niet voor deze methode, krijgt geen 405
+/// maar de 404 van een onbekende route, zoals altijd. Een id of naam met
+/// een `/` erin blijft één id of naam (`{...}` vangt de rest), een lege
+/// (`DELETE /v1/jobs/`) een 400 in de handler.
+const ROUTES: [(&str, Route); 18] = [
+    ("/health", Route::Health),
+    ("GET /v1/tasks", Route::Tasks),
+    ("GET /v1/jobs/{name}/status", Route::JobStatus),
+    ("GET /v1/jobs/{rest...}", Route::JobGet),
+    ("GET /v1/events", Route::Events),
+    ("GET /v1/agents/{id}/capacity", Route::AgentCapacity),
+    ("GET /v1/agents/{id}/logs/{rest...}", Route::AgentLogs),
+    ("POST /v1/jobs", Route::Apply),
+    ("GET /v1/agents", Route::Agents),
+    ("POST /v1/agents", Route::Register),
+    ("POST /v1/heartbeat", Route::Heartbeat),
+    ("GET /v1/jobs", Route::Jobs),
+    ("GET /v1/status", Route::Status),
+    ("POST /v1/notify", Route::Notify),
+    ("DELETE /v1/agents/{id...}", Route::DeleteAgent),
+    ("DELETE /v1/jobs/{name...}", Route::DeleteJob),
+    ("PATCH /v1/jobs/{name}/priority", Route::Priority),
+    ("PATCH /v1/jobs/{rest...}", Route::PatchJob),
+];
+
 /// De leader-API.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug)]
 pub struct LeaderApi {
     key: Vec<u8>,
     cluster_name: String,
+    routes: Routes<Route>,
+}
+
+impl Default for LeaderApi {
+    fn default() -> Self {
+        Self::new(b"", "")
+    }
+}
+
+impl Clone for LeaderApi {
+    fn clone(&self) -> Self {
+        Self::new(&self.key, &self.cluster_name)
+    }
 }
 
 impl LeaderApi {
@@ -255,6 +342,7 @@ impl LeaderApi {
         Self {
             key: key.to_vec(),
             cluster_name: String::from(cluster_name),
+            routes: Routes::new(&ROUTES),
         }
     }
 
@@ -265,65 +353,68 @@ impl LeaderApi {
         now: Nanos,
         req: &Request,
     ) -> (Response, LeaderEffect) {
+        let none = |r| (r, LeaderEffect::None);
+        let (route, lr) = match self.routes.find(req) {
+            Lookup::Hit(route, lr) => (Some(route), lr),
+            Lookup::Miss => (None, leanhttp::Request::default()),
+            Lookup::Broken => return none(Response::error(500, "internal error")),
+        };
+        // `/health` vóór de HMAC; een onbekend pad erna.
+        if route != Some(Route::Health)
+            && let Some(reject) = check_auth(&self.key, req)
+        {
+            return none(reject);
+        }
+        let Some(route) = route else {
+            return none(not_found());
+        };
         let path = req.path.as_str();
-        if path == "/health" {
-            return (reply(200, [("status", s("ok"))]), LeaderEffect::None);
-        }
-        if let Some(reject) = check_auth(&self.key, req) {
-            return (reject, LeaderEffect::None);
-        }
-        match (req.method, path) {
-            (Method::Get, "/v1/tasks") => return tasks(cluster),
-            (Method::Get, p) if p.starts_with("/v1/jobs/") && p.ends_with("/status") => {
-                return job_status(cluster, p);
-            }
-            (Method::Get, "/v1/events") => {
+        let r = match route {
+            Route::Health => reply(200, [("status", s("ok"))]),
+            Route::Tasks => return tasks(cluster),
+            Route::JobStatus => return job_status(cluster, path),
+            Route::JobGet if path.ends_with("/status") => return job_status(cluster, path),
+            Route::Events => {
                 let mut r = Response::empty(200);
                 r.set_header("Content-Type", "text/event-stream");
                 return (r, LeaderEffect::Events);
             }
-            (Method::Get, p) if p.starts_with("/v1/agents/") => {
-                if let Some(out) = agent_route(cluster, req, p) {
-                    return out;
-                }
+            Route::AgentCapacity => {
+                return agent_route(cluster, req, value(&lr, "id"), None);
             }
-            (Method::Post, "/v1/jobs") => return apply(cluster, now, req),
-            _ => {}
-        }
-        (self.state(cluster, now, req), LeaderEffect::None)
-    }
-
-    /// De routes over de staat van de leader zelf.
-    fn state<C: Cluster>(&self, cluster: &mut C, now: Nanos, req: &Request) -> Response {
-        let path = req.path.as_str();
-        match (req.method, path) {
-            (Method::Get, "/v1/agents") => agents(cluster),
-            (Method::Post, "/v1/agents") => register(cluster, now, req),
-            (Method::Post, "/v1/heartbeat") => heartbeat(cluster, now, req),
-            (Method::Get, "/v1/jobs") => jobs(cluster),
-            (Method::Get, "/v1/status") => self.status(cluster),
-            (Method::Post, "/v1/notify") => notify(cluster, req),
-            (Method::Delete, p) if p.starts_with("/v1/agents/") => {
-                let id = p.trim_start_matches("/v1/agents/");
+            Route::AgentLogs => {
+                return agent_route(cluster, req, value(&lr, "id"), Some(value(&lr, "rest")));
+            }
+            Route::Apply => return apply(cluster, now, req),
+            Route::Agents => agents(cluster),
+            Route::Register => register(cluster, now, req),
+            Route::Heartbeat => heartbeat(cluster, now, req),
+            Route::Jobs => jobs(cluster),
+            Route::Status => self.status(cluster),
+            Route::Notify => notify(cluster, req),
+            Route::DeleteAgent => {
+                let id = value(&lr, "id");
                 if id.is_empty() {
-                    return Response::error(400, "agent id required");
+                    return none(Response::error(400, "agent id required"));
                 }
                 cluster.unregister_agent(id);
                 Response::empty(204)
             }
-            (Method::Delete, p) if p.starts_with("/v1/jobs/") => {
-                let name = p.trim_start_matches("/v1/jobs/");
+            Route::DeleteJob => {
+                let name = value(&lr, "name");
                 if name.is_empty() {
-                    return Response::error(400, "job name required");
+                    return none(Response::error(400, "job name required"));
                 }
                 cluster.delete_job(now, name);
                 Response::empty(204)
             }
-            (Method::Patch, p) if p.starts_with("/v1/jobs/") && p.ends_with("/priority") => {
-                patch_priority(cluster, now, req, p)
+            Route::Priority => patch_priority(cluster, now, req, path),
+            Route::PatchJob if path.ends_with("/priority") => {
+                patch_priority(cluster, now, req, path)
             }
-            _ => Response::error(404, "not found"),
-        }
+            Route::JobGet | Route::PatchJob => not_found(),
+        };
+        none(r)
     }
 
     /// Het clusteroverzicht uit de placed-tellers, zonder één aanroep naar een agent.
@@ -423,53 +514,58 @@ fn job_status<C: Cluster>(cluster: &C, path: &str) -> (Response, LeaderEffect) {
     (Response::empty(200), LeaderEffect::Tasks { agents, scope })
 }
 
-/// `GET /v1/agents/{id}/capacity` en `GET /v1/agents/{id}/logs/{taak}/{stroom}`:
-/// een doorgifte naar die agent. `None` voor elk ander pad onder `/v1/agents/`.
+/// `GET /v1/agents/{id}/capacity` (`logs` is `None`) en
+/// `GET /v1/agents/{id}/logs/{taak}/{stroom}` (`logs` is de rest na
+/// `logs/`): een doorgifte naar die agent.
 fn agent_route<C: Cluster>(
     cluster: &C,
     req: &Request,
-    path: &str,
-) -> Option<(Response, LeaderEffect)> {
-    let rest = path.strip_prefix("/v1/agents/")?;
-    let (id, sub) = rest.split_once('/')?;
-    let (target, stream) = if sub == "capacity" {
-        (String::from("/capacity"), false)
-    } else {
-        let logs = sub.strip_prefix("logs/")?;
-        let mut parts = logs.split('/');
-        let (Some(task), Some(which), None) = (parts.next(), parts.next(), parts.next()) else {
-            return Some(bad_request());
-        };
-        if id.is_empty() || task.is_empty() || !matches!(which, "stdout" | "stderr") {
-            return Some(bad_request());
+    id: &str,
+    logs: Option<&str>,
+) -> (Response, LeaderEffect) {
+    let (target, stream) = match logs {
+        None => (String::from("/capacity"), false),
+        Some(logs) => {
+            let mut parts = logs.split('/');
+            let (Some(task), Some(which), None) = (parts.next(), parts.next(), parts.next()) else {
+                return bad_request();
+            };
+            if id.is_empty() || task.is_empty() || !matches!(which, "stdout" | "stderr") {
+                return bad_request();
+            }
+            let mut t = alloc::format!("/logs/{task}/{which}");
+            if !req.query.is_empty() {
+                t.push('?');
+                t.push_str(&req.query);
+            }
+            // Go's contract: deze route IS de levende tail (het dashboard en de
+            // Go-CLI vragen hem zonder query en verwachten "Live output"). De
+            // agent-route `/logs/...` geeft zonder `follow` een momentopname;
+            // hier volgt de doorgifte dus tenzij de aanroeper `follow=0` zegt
+            // (`hop logs` zonder `--follow`).
+            if req.query_param("follow").is_none() {
+                t.push(if req.query.is_empty() { '?' } else { '&' });
+                t.push_str("follow=1");
+            }
+            (t, true)
         }
-        let mut t = alloc::format!("/logs/{task}/{which}");
-        if !req.query.is_empty() {
-            t.push('?');
-            t.push_str(&req.query);
-        }
-        // Go's contract: deze route IS de levende tail (het dashboard en de
-        // Go-CLI vragen hem zonder query en verwachten "Live output"). De
-        // agent-route `/logs/...` geeft zonder `follow` een momentopname;
-        // hier volgt de doorgifte dus tenzij de aanroeper `follow=0` zegt
-        // (`hop logs` zonder `--follow`).
-        if req.query_param("follow").is_none() {
-            t.push(if req.query.is_empty() { '?' } else { '&' });
-            t.push_str("follow=1");
-        }
-        (t, true)
     };
     let Some(agent) = cluster.agents().into_iter().find(|a| a.id == id) else {
-        return Some((Response::error(404, "agent not found"), LeaderEffect::None));
+        return (Response::error(404, "agent not found"), LeaderEffect::None);
     };
-    Some((
+    (
         Response::empty(200),
         LeaderEffect::Agent {
             endpoint: agent.endpoint,
             path: target,
             stream,
         },
-    ))
+    )
+}
+
+/// Het antwoord op een route die er niet is.
+fn not_found() -> Response {
+    Response::error(404, "not found")
 }
 
 /// Go's antwoord op een kapot log-pad onder `/v1/agents/`.
@@ -704,4 +800,14 @@ fn patch_priority<C: Cluster>(cluster: &mut C, now: Nanos, req: &Request, path: 
         return Response::error(404, &msg);
     }
     Response::empty(204)
+}
+
+#[cfg(test)]
+mod route_tests {
+    use super::*;
+
+    #[test]
+    fn the_route_table_builds() {
+        assert!(Routes::new(&ROUTES).is_built());
+    }
 }

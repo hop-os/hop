@@ -1,0 +1,1164 @@
+node[] GET / -> 404 application/json {"error":"not found"} None
+node[] POST / -> 404 application/json {"error":"not found"} None
+node[] DELETE / -> 404 application/json {"error":"not found"} None
+node[] PATCH / -> 404 application/json {"error":"not found"} None
+node[] OPTIONS / -> 200 -  None
+node[] OTHER / -> 404 application/json {"error":"not found"} None
+node[] GET /health -> 200 application/json {"status":"ok"} None
+node[] POST /health -> 200 application/json {"status":"ok"} None
+node[] DELETE /health -> 200 application/json {"status":"ok"} None
+node[] PATCH /health -> 200 application/json {"status":"ok"} None
+node[] OPTIONS /health -> 200 -  None
+node[] OTHER /health -> 200 application/json {"status":"ok"} None
+node[] GET /health/ -> 404 application/json {"error":"not found"} None
+node[] POST /health/ -> 404 application/json {"error":"not found"} None
+node[] DELETE /health/ -> 404 application/json {"error":"not found"} None
+node[] PATCH /health/ -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /health/ -> 200 -  None
+node[] OTHER /health/ -> 404 application/json {"error":"not found"} None
+node[] GET /leader -> 200 application/json {"leader":"10.0.0.1:9080"} None
+node[] POST /leader -> 200 application/json {"leader":"10.0.0.1:9080"} None
+node[] DELETE /leader -> 200 application/json {"leader":"10.0.0.1:9080"} None
+node[] PATCH /leader -> 200 application/json {"leader":"10.0.0.1:9080"} None
+node[] OPTIONS /leader -> 200 -  None
+node[] OTHER /leader -> 200 application/json {"leader":"10.0.0.1:9080"} None
+node[] GET /leader/ -> 404 application/json {"error":"not found"} None
+node[] POST /leader/ -> 404 application/json {"error":"not found"} None
+node[] DELETE /leader/ -> 404 application/json {"error":"not found"} None
+node[] PATCH /leader/ -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /leader/ -> 200 -  None
+node[] OTHER /leader/ -> 404 application/json {"error":"not found"} None
+node[] GET /v1 -> 404 application/json {"error":"not found"} None
+node[] POST /v1 -> 404 application/json {"error":"not found"} None
+node[] DELETE /v1 -> 404 application/json {"error":"not found"} None
+node[] PATCH /v1 -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /v1 -> 200 -  None
+node[] OTHER /v1 -> 404 application/json {"error":"not found"} None
+node[] GET /v1/ -> 404 application/json {"error":"not found"} None
+node[] POST /v1/ -> 404 application/json {"error":"not found"} None
+node[] DELETE /v1/ -> 404 application/json {"error":"not found"} None
+node[] PATCH /v1/ -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /v1/ -> 200 -  None
+node[] OTHER /v1/ -> 404 application/json {"error":"not found"} None
+node[] GET /v1/agents -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] POST /v1/agents -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] DELETE /v1/agents -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] PATCH /v1/agents -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] OPTIONS /v1/agents -> 200 -  None
+node[] OTHER /v1/agents -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] GET /v1/agents/ -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] POST /v1/agents/ -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] DELETE /v1/agents/ -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] PATCH /v1/agents/ -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] OPTIONS /v1/agents/ -> 200 -  None
+node[] OTHER /v1/agents/ -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] GET /v1/agents/x -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] POST /v1/agents/x -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] DELETE /v1/agents/x -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] PATCH /v1/agents/x -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] OPTIONS /v1/agents/x -> 200 -  None
+node[] OTHER /v1/agents/x -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] GET /v1/agents/x/logs/t/stdout -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: true }
+node[] POST /v1/agents/x/logs/t/stdout -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: true }
+node[] DELETE /v1/agents/x/logs/t/stdout -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: true }
+node[] PATCH /v1/agents/x/logs/t/stdout -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: true }
+node[] OPTIONS /v1/agents/x/logs/t/stdout -> 200 -  None
+node[] OTHER /v1/agents/x/logs/t/stdout -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: true }
+node[] GET /v1/jobs -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] POST /v1/jobs -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] DELETE /v1/jobs -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] PATCH /v1/jobs -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] OPTIONS /v1/jobs -> 200 -  None
+node[] OTHER /v1/jobs -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] GET /v1/jobs/ -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] POST /v1/jobs/ -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] DELETE /v1/jobs/ -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] PATCH /v1/jobs/ -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] OPTIONS /v1/jobs/ -> 200 -  None
+node[] OTHER /v1/jobs/ -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] GET /v1/jobs/a/b -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] POST /v1/jobs/a/b -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] DELETE /v1/jobs/a/b -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] PATCH /v1/jobs/a/b -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] OPTIONS /v1/jobs/a/b -> 200 -  None
+node[] OTHER /v1/jobs/a/b -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] GET /v1/status -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] POST /v1/status -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] DELETE /v1/status -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] PATCH /v1/status -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] OPTIONS /v1/status -> 200 -  None
+node[] OTHER /v1/status -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] GET /v1/status/ -> 404 application/json {"error":"not found"} None
+node[] POST /v1/status/ -> 404 application/json {"error":"not found"} None
+node[] DELETE /v1/status/ -> 404 application/json {"error":"not found"} None
+node[] PATCH /v1/status/ -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /v1/status/ -> 200 -  None
+node[] OTHER /v1/status/ -> 404 application/json {"error":"not found"} None
+node[] GET /v1/tasks -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] POST /v1/tasks -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] DELETE /v1/tasks -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] PATCH /v1/tasks -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] OPTIONS /v1/tasks -> 200 -  None
+node[] OTHER /v1/tasks -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: false }
+node[] GET /v1/events -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: true }
+node[] POST /v1/events -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: true }
+node[] DELETE /v1/events -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: true }
+node[] PATCH /v1/events -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: true }
+node[] OPTIONS /v1/events -> 200 -  None
+node[] OTHER /v1/events -> 200 -  Proxy { leader: "10.0.0.1:9080", stream: true }
+node[] GET /v1/eventsx -> 404 application/json {"error":"not found"} None
+node[] POST /v1/eventsx -> 404 application/json {"error":"not found"} None
+node[] DELETE /v1/eventsx -> 404 application/json {"error":"not found"} None
+node[] PATCH /v1/eventsx -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /v1/eventsx -> 200 -  None
+node[] OTHER /v1/eventsx -> 404 application/json {"error":"not found"} None
+node[] GET /logs -> 404 application/json {"error":"not found"} None
+node[] POST /logs -> 404 application/json {"error":"not found"} None
+node[] DELETE /logs -> 404 application/json {"error":"not found"} None
+node[] PATCH /logs -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /logs -> 200 -  None
+node[] OTHER /logs -> 404 application/json {"error":"not found"} None
+node[] GET /logs/ -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] POST /logs/ -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] DELETE /logs/ -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] PATCH /logs/ -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] OPTIONS /logs/ -> 200 -  None
+node[] OTHER /logs/ -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] GET /logs/t -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] POST /logs/t -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] DELETE /logs/t -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] PATCH /logs/t -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] OPTIONS /logs/t -> 200 -  None
+node[] OTHER /logs/t -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] GET /logs/t/ -> 400 application/json {"error":"stream must be stdout or stderr"} None
+node[] POST /logs/t/ -> 400 application/json {"error":"stream must be stdout or stderr"} None
+node[] DELETE /logs/t/ -> 400 application/json {"error":"stream must be stdout or stderr"} None
+node[] PATCH /logs/t/ -> 400 application/json {"error":"stream must be stdout or stderr"} None
+node[] OPTIONS /logs/t/ -> 200 -  None
+node[] OTHER /logs/t/ -> 400 application/json {"error":"stream must be stdout or stderr"} None
+node[] GET /logs/t/stdout -> 200 text/event-stream  Logs { task_id: "t", stream: Stdout }
+node[] POST /logs/t/stdout -> 200 text/event-stream  Logs { task_id: "t", stream: Stdout }
+node[] DELETE /logs/t/stdout -> 200 text/event-stream  Logs { task_id: "t", stream: Stdout }
+node[] PATCH /logs/t/stdout -> 200 text/event-stream  Logs { task_id: "t", stream: Stdout }
+node[] OPTIONS /logs/t/stdout -> 200 -  None
+node[] OTHER /logs/t/stdout -> 200 text/event-stream  Logs { task_id: "t", stream: Stdout }
+node[] GET /logs/t/stderr/ -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] POST /logs/t/stderr/ -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] DELETE /logs/t/stderr/ -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] PATCH /logs/t/stderr/ -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] OPTIONS /logs/t/stderr/ -> 200 -  None
+node[] OTHER /logs/t/stderr/ -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] GET /logs/t/x -> 400 application/json {"error":"stream must be stdout or stderr"} None
+node[] POST /logs/t/x -> 400 application/json {"error":"stream must be stdout or stderr"} None
+node[] DELETE /logs/t/x -> 400 application/json {"error":"stream must be stdout or stderr"} None
+node[] PATCH /logs/t/x -> 400 application/json {"error":"stream must be stdout or stderr"} None
+node[] OPTIONS /logs/t/x -> 200 -  None
+node[] OTHER /logs/t/x -> 400 application/json {"error":"stream must be stdout or stderr"} None
+node[] GET /logs/t/stdout/more -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] POST /logs/t/stdout/more -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] DELETE /logs/t/stdout/more -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] PATCH /logs/t/stdout/more -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] OPTIONS /logs/t/stdout/more -> 200 -  None
+node[] OTHER /logs/t/stdout/more -> 400 application/json {"error":"usage: /logs/{taskID}/stdout or /logs/{taskID}/stderr"} None
+node[] GET /capacity -> 200 application/json {"cpu_cores":8,"memory_bytes":1073741824,"cpu_used_shares":0,"memory_used_bytes":0,"tasks_running":0,"attributes":{"node.id":"test-agent","node.os":"linux"}} None
+node[] POST /capacity -> 200 application/json {"cpu_cores":8,"memory_bytes":1073741824,"cpu_used_shares":0,"memory_used_bytes":0,"tasks_running":0,"attributes":{"node.id":"test-agent","node.os":"linux"}} None
+node[] DELETE /capacity -> 200 application/json {"cpu_cores":8,"memory_bytes":1073741824,"cpu_used_shares":0,"memory_used_bytes":0,"tasks_running":0,"attributes":{"node.id":"test-agent","node.os":"linux"}} None
+node[] PATCH /capacity -> 200 application/json {"cpu_cores":8,"memory_bytes":1073741824,"cpu_used_shares":0,"memory_used_bytes":0,"tasks_running":0,"attributes":{"node.id":"test-agent","node.os":"linux"}} None
+node[] OPTIONS /capacity -> 200 -  None
+node[] OTHER /capacity -> 200 application/json {"cpu_cores":8,"memory_bytes":1073741824,"cpu_used_shares":0,"memory_used_bytes":0,"tasks_running":0,"attributes":{"node.id":"test-agent","node.os":"linux"}} None
+node[] GET /capacity/ -> 404 application/json {"error":"not found"} None
+node[] POST /capacity/ -> 404 application/json {"error":"not found"} None
+node[] DELETE /capacity/ -> 404 application/json {"error":"not found"} None
+node[] PATCH /capacity/ -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /capacity/ -> 200 -  None
+node[] OTHER /capacity/ -> 404 application/json {"error":"not found"} None
+node[] GET /tasks -> 200 application/json [] None
+node[] POST /tasks -> 200 application/json [] None
+node[] DELETE /tasks -> 200 application/json [] None
+node[] PATCH /tasks -> 200 application/json [] None
+node[] OPTIONS /tasks -> 200 -  None
+node[] OTHER /tasks -> 200 application/json [] None
+node[] GET /tasks/ -> 404 application/json {"error":"not found"} None
+node[] POST /tasks/ -> 404 application/json {"error":"not found"} None
+node[] DELETE /tasks/ -> 404 application/json {"error":"not found"} None
+node[] PATCH /tasks/ -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /tasks/ -> 200 -  None
+node[] OTHER /tasks/ -> 404 application/json {"error":"not found"} None
+node[] GET /run -> 405 application/json {"error":"method not allowed"} None
+node[] POST /run -> 202 application/json {"status":"accepted","job":"j","message":"job accepted, starting in background"} None
+node[] DELETE /run -> 405 application/json {"error":"method not allowed"} None
+node[] PATCH /run -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /run -> 200 -  None
+node[] OTHER /run -> 405 application/json {"error":"method not allowed"} None
+node[] GET /run/ -> 404 application/json {"error":"not found"} None
+node[] POST /run/ -> 404 application/json {"error":"not found"} None
+node[] DELETE /run/ -> 404 application/json {"error":"not found"} None
+node[] PATCH /run/ -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /run/ -> 200 -  None
+node[] OTHER /run/ -> 404 application/json {"error":"not found"} None
+node[] GET /flip -> 405 application/json {"error":"method not allowed"} None
+node[] POST /flip -> 400 application/json {"error":"url must be absolute"} None
+node[] DELETE /flip -> 405 application/json {"error":"method not allowed"} None
+node[] PATCH /flip -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /flip -> 200 -  None
+node[] OTHER /flip -> 405 application/json {"error":"method not allowed"} None
+node[] GET /restart -> 405 application/json {"error":"method not allowed"} None
+node[] POST /restart -> 202 application/json {"status":"restart requested: Hop hands its state to the kernel and starts again in its slot; the apps keep running"} Restart { url: "", sha256: "" }
+node[] DELETE /restart -> 405 application/json {"error":"method not allowed"} None
+node[] PATCH /restart -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /restart -> 200 -  None
+node[] OTHER /restart -> 405 application/json {"error":"method not allowed"} None
+node[] GET /delete -> 404 application/json {"error":"not found"} None
+node[] POST /delete -> 404 application/json {"error":"not found"} None
+node[] DELETE /delete -> 404 application/json {"error":"not found"} None
+node[] PATCH /delete -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /delete -> 200 -  None
+node[] OTHER /delete -> 404 application/json {"error":"not found"} None
+node[] GET /delete/ -> 405 application/json {"error":"method not allowed"} None
+node[] POST /delete/ -> 405 application/json {"error":"method not allowed"} None
+node[] DELETE /delete/ -> 400 application/json {"error":"job name required"} None
+node[] PATCH /delete/ -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /delete/ -> 200 -  None
+node[] OTHER /delete/ -> 405 application/json {"error":"method not allowed"} None
+node[] GET /delete/j -> 405 application/json {"error":"method not allowed"} None
+node[] POST /delete/j -> 405 application/json {"error":"method not allowed"} None
+node[] DELETE /delete/j -> 200 application/json {"deleted":0} None
+node[] PATCH /delete/j -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /delete/j -> 200 -  None
+node[] OTHER /delete/j -> 405 application/json {"error":"method not allowed"} None
+node[] GET /delete/j/ -> 405 application/json {"error":"method not allowed"} None
+node[] POST /delete/j/ -> 405 application/json {"error":"method not allowed"} None
+node[] DELETE /delete/j/ -> 200 application/json {"deleted":0} None
+node[] PATCH /delete/j/ -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /delete/j/ -> 200 -  None
+node[] OTHER /delete/j/ -> 405 application/json {"error":"method not allowed"} None
+node[] GET /delete/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] POST /delete/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] DELETE /delete/a/b -> 200 application/json {"deleted":0} None
+node[] PATCH /delete/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /delete/a/b -> 200 -  None
+node[] OTHER /delete/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] GET /stop -> 404 application/json {"error":"not found"} None
+node[] POST /stop -> 404 application/json {"error":"not found"} None
+node[] DELETE /stop -> 404 application/json {"error":"not found"} None
+node[] PATCH /stop -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /stop -> 200 -  None
+node[] OTHER /stop -> 404 application/json {"error":"not found"} None
+node[] GET /stop/ -> 405 application/json {"error":"method not allowed"} None
+node[] POST /stop/ -> 400 application/json {"error":"job name required"} None
+node[] DELETE /stop/ -> 405 application/json {"error":"method not allowed"} None
+node[] PATCH /stop/ -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /stop/ -> 200 -  None
+node[] OTHER /stop/ -> 405 application/json {"error":"method not allowed"} None
+node[] GET /stop/j -> 405 application/json {"error":"method not allowed"} None
+node[] POST /stop/j -> 200 application/json {"stopped":0} None
+node[] DELETE /stop/j -> 405 application/json {"error":"method not allowed"} None
+node[] PATCH /stop/j -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /stop/j -> 200 -  None
+node[] OTHER /stop/j -> 405 application/json {"error":"method not allowed"} None
+node[] GET /stop/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] POST /stop/a/b -> 200 application/json {"stopped":0} None
+node[] DELETE /stop/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] PATCH /stop/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /stop/a/b -> 200 -  None
+node[] OTHER /stop/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] GET /stop-task -> 404 application/json {"error":"not found"} None
+node[] POST /stop-task -> 404 application/json {"error":"not found"} None
+node[] DELETE /stop-task -> 404 application/json {"error":"not found"} None
+node[] PATCH /stop-task -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /stop-task -> 200 -  None
+node[] OTHER /stop-task -> 404 application/json {"error":"not found"} None
+node[] GET /stop-task/ -> 405 application/json {"error":"method not allowed"} None
+node[] POST /stop-task/ -> 400 application/json {"error":"task id required"} None
+node[] DELETE /stop-task/ -> 405 application/json {"error":"method not allowed"} None
+node[] PATCH /stop-task/ -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /stop-task/ -> 200 -  None
+node[] OTHER /stop-task/ -> 405 application/json {"error":"method not allowed"} None
+node[] GET /stop-task/t1 -> 405 application/json {"error":"method not allowed"} None
+node[] POST /stop-task/t1 -> 404 application/json {"error":"task not found"} None
+node[] DELETE /stop-task/t1 -> 405 application/json {"error":"method not allowed"} None
+node[] PATCH /stop-task/t1 -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /stop-task/t1 -> 200 -  None
+node[] OTHER /stop-task/t1 -> 405 application/json {"error":"method not allowed"} None
+node[] GET /stop-task/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] POST /stop-task/a/b -> 404 application/json {"error":"task not found"} None
+node[] DELETE /stop-task/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] PATCH /stop-task/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] OPTIONS /stop-task/a/b -> 200 -  None
+node[] OTHER /stop-task/a/b -> 405 application/json {"error":"method not allowed"} None
+node[] GET /stopx -> 404 application/json {"error":"not found"} None
+node[] POST /stopx -> 404 application/json {"error":"not found"} None
+node[] DELETE /stopx -> 404 application/json {"error":"not found"} None
+node[] PATCH /stopx -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /stopx -> 200 -  None
+node[] OTHER /stopx -> 404 application/json {"error":"not found"} None
+node[] GET /unknown -> 404 application/json {"error":"not found"} None
+node[] POST /unknown -> 404 application/json {"error":"not found"} None
+node[] DELETE /unknown -> 404 application/json {"error":"not found"} None
+node[] PATCH /unknown -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /unknown -> 200 -  None
+node[] OTHER /unknown -> 404 application/json {"error":"not found"} None
+node[] GET /a/b/c -> 404 application/json {"error":"not found"} None
+node[] POST /a/b/c -> 404 application/json {"error":"not found"} None
+node[] DELETE /a/b/c -> 404 application/json {"error":"not found"} None
+node[] PATCH /a/b/c -> 404 application/json {"error":"not found"} None
+node[] OPTIONS /a/b/c -> 200 -  None
+node[] OTHER /a/b/c -> 404 application/json {"error":"not found"} None
+leader[] GET / -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST / -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE / -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH / -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS / -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER / -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[] POST /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[] DELETE /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[] PATCH /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[] OPTIONS /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[] OTHER /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[] GET /health/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /health/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /health/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /health/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /health/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /health/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /leader -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /leader -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /leader -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /leader -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /leader -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /leader -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/tasks -> 200 -  Tasks { agents: [("a1", "http://10.0.0.2:8080")], scope: All { agents: [Agent { id: "a1", endpoint: "http://10.0.0.2:8080", version: "v", last_seen: Time(0), telemetry: Telemetry { temp_milli_c: 0, kern: SysUsage { cpu_percent: None, mem_bytes: 0, ram_bytes: 0, core: None }, hop: SysUsage { cpu_percent: None, mem_bytes: 0, ram_bytes: 0, core: None } } }] } } jobs=1 agents=1
+leader[] POST /v1/tasks -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/tasks -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/tasks -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/tasks -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/tasks -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/tasks/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/tasks/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/tasks/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/tasks/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/tasks/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/tasks/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs -> 200 application/json [{"name":"j"}] None jobs=1 agents=1
+leader[] POST /v1/jobs -> 200 application/json {"name":"j","status":"updated","policy":"rolling"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/jobs -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/jobs/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/ -> 400 application/json {"error":"job name required"} None jobs=1 agents=1
+leader[] PATCH /v1/jobs/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/status -> 400 application/json {"error":"job name required"} None jobs=1 agents=1
+leader[] POST /v1/jobs/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/status -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/j/status -> 200 -  Tasks { agents: [("a1", "http://10.0.0.2:8080")], scope: Job { name: "j", agents: [Agent { id: "a1", endpoint: "http://10.0.0.2:8080", version: "v", last_seen: Time(0), telemetry: Telemetry { temp_milli_c: 0, kern: SysUsage { cpu_percent: None, mem_bytes: 0, ram_bytes: 0, core: None }, hop: SysUsage { cpu_percent: None, mem_bytes: 0, ram_bytes: 0, core: None } } }] } } jobs=1 agents=1
+leader[] POST /v1/jobs/j/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/j/status -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/j/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/j/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/j/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/none/status -> 200 application/json {"agents":null,"tasks_by_agent":null} None jobs=1 agents=1
+leader[] POST /v1/jobs/none/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/none/status -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/none/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/none/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/none/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/a/b/status -> 400 application/json {"error":"job name required"} None jobs=1 agents=1
+leader[] POST /v1/jobs/a/b/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/a/b/status -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/a/b/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/a/b/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/a/b/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/j/status/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/jobs/j/status/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/j/status/ -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/j/status/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/j/status/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/j/status/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/j -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/jobs/j -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/j -> 204 -  None jobs=0 agents=1
+leader[] PATCH /v1/jobs/j -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/j -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/j -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/j/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/jobs/j/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/j/ -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/j/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/j/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/j/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/a/b -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/jobs/a/b -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/a/b -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/a/b -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/a/b -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/a/b -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/jobs/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/priority -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/priority -> 404 application/json {"error":"job priority not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/j/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/jobs/j/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/j/priority -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/j/priority -> 204 -  None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/j/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/j/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/a/b/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/jobs/a/b/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/a/b/priority -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/a/b/priority -> 400 application/json {"error":"job name required"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/a/b/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/a/b/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/j/priority/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/jobs/j/priority/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/j/priority/priority -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/j/priority/priority -> 204 -  None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/j/priority/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/j/priority/priority -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/jobs/j/priority/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/jobs/j/priority/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/jobs/j/priority/ -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/jobs/j/priority/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/jobs/j/priority/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/jobs/j/priority/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/events -> 200 text/event-stream  Events jobs=1 agents=1
+leader[] POST /v1/events -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/events -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/events -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/events -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/events -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/events/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/events/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/events/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/events/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/events/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/events/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents -> 200 application/json [{"id":"a1","endpoint":"http://10.0.0.2:8080","version":"v","last_seen":"0001-01-01T00:00:00Z"}] None jobs=1 agents=1
+leader[] POST /v1/agents -> 200 application/json {"status":"registered","jobs":[{"name":"j"}],"state_time":"1970-01-01T00:16:40Z"} None jobs=1 agents=2
+leader[] DELETE /v1/agents -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/agents -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/agents/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/ -> 400 application/json {"error":"agent id required"} None jobs=1 agents=1
+leader[] PATCH /v1/agents/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/agents/a1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1 -> 204 -  None jobs=1 agents=0
+leader[] PATCH /v1/agents/a1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/agents/a1/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1/ -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a1/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a/b -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/agents/a/b -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a/b -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a/b -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a/b -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a/b -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1/capacity -> 200 -  Agent { endpoint: "http://10.0.0.2:8080", path: "/capacity", stream: false } jobs=1 agents=1
+leader[] POST /v1/agents/a1/capacity -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1/capacity -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a1/capacity -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1/capacity -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1/capacity -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1/capacity/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/agents/a1/capacity/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1/capacity/ -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a1/capacity/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1/capacity/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1/capacity/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/nope/capacity -> 404 application/json {"error":"agent not found"} None jobs=1 agents=1
+leader[] POST /v1/agents/nope/capacity -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/nope/capacity -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/nope/capacity -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/nope/capacity -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/nope/capacity -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1/logs -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/agents/a1/logs -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1/logs -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a1/logs -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1/logs -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1/logs -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1/logs/ -> 400 application/json {"error":"invalid request parameters"} None jobs=1 agents=1
+leader[] POST /v1/agents/a1/logs/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1/logs/ -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a1/logs/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1/logs/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1/logs/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1/logs/t -> 400 application/json {"error":"invalid request parameters"} None jobs=1 agents=1
+leader[] POST /v1/agents/a1/logs/t -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1/logs/t -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a1/logs/t -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1/logs/t -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1/logs/t -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1/logs/t/stdout -> 200 -  Agent { endpoint: "http://10.0.0.2:8080", path: "/logs/t/stdout?follow=1", stream: true } jobs=1 agents=1
+leader[] POST /v1/agents/a1/logs/t/stdout -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1/logs/t/stdout -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a1/logs/t/stdout -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1/logs/t/stdout -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1/logs/t/stdout -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1/logs/t/stderr?follow=0 -> 200 -  Agent { endpoint: "http://10.0.0.2:8080", path: "/logs/t/stderr?follow=0", stream: true } jobs=1 agents=1
+leader[] POST /v1/agents/a1/logs/t/stderr?follow=0 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1/logs/t/stderr?follow=0 -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a1/logs/t/stderr?follow=0 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1/logs/t/stderr?follow=0 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1/logs/t/stderr?follow=0 -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1/logs/t/x -> 400 application/json {"error":"invalid request parameters"} None jobs=1 agents=1
+leader[] POST /v1/agents/a1/logs/t/x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1/logs/t/x -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a1/logs/t/x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1/logs/t/x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1/logs/t/x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/a1/logs/t/stdout/x -> 400 application/json {"error":"invalid request parameters"} None jobs=1 agents=1
+leader[] POST /v1/agents/a1/logs/t/stdout/x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/a1/logs/t/stdout/x -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/a1/logs/t/stdout/x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/a1/logs/t/stdout/x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/a1/logs/t/stdout/x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/agents/nope/logs/t/stdout -> 404 application/json {"error":"agent not found"} None jobs=1 agents=1
+leader[] POST /v1/agents/nope/logs/t/stdout -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/agents/nope/logs/t/stdout -> 204 -  None jobs=1 agents=1
+leader[] PATCH /v1/agents/nope/logs/t/stdout -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/agents/nope/logs/t/stdout -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/agents/nope/logs/t/stdout -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/heartbeat -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/heartbeat -> 404 application/json {"error":"not registered"} None jobs=1 agents=1
+leader[] DELETE /v1/heartbeat -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/heartbeat -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/heartbeat -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/heartbeat -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/heartbeat/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/heartbeat/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/heartbeat/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/heartbeat/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/heartbeat/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/heartbeat/ -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/notify -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/notify -> 204 -  None jobs=1 agents=1
+leader[] DELETE /v1/notify -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/notify -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/notify -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/notify -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/status -> 200 application/json {"cluster_name":"test-cluster","agents":1,"jobs":1,"total_placed":1,"settling":false,"placed":{"j":1},"deploying":[]} None jobs=1 agents=1
+leader[] POST /v1/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/status -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /v1/statusx -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /v1/statusx -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /v1/statusx -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /v1/statusx -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /v1/statusx -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /v1/statusx -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] GET /x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] POST /x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] DELETE /x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] PATCH /x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OPTIONS /x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+leader[] OTHER /x -> 404 application/json {"error":"not found"} None jobs=1 agents=1
+node[k] GET / -> 401 application/json {"error":"unauthorized"} None
+node[k] POST / -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE / -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH / -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS / -> 200 -  None
+node[k] OTHER / -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /health -> 200 application/json {"status":"ok"} None
+node[k] POST /health -> 200 application/json {"status":"ok"} None
+node[k] DELETE /health -> 200 application/json {"status":"ok"} None
+node[k] PATCH /health -> 200 application/json {"status":"ok"} None
+node[k] OPTIONS /health -> 200 -  None
+node[k] OTHER /health -> 200 application/json {"status":"ok"} None
+node[k] GET /health/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /health/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /health/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /health/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /health/ -> 200 -  None
+node[k] OTHER /health/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /leader -> 200 application/json {"leader":"10.0.0.1:9080"} None
+node[k] POST /leader -> 200 application/json {"leader":"10.0.0.1:9080"} None
+node[k] DELETE /leader -> 200 application/json {"leader":"10.0.0.1:9080"} None
+node[k] PATCH /leader -> 200 application/json {"leader":"10.0.0.1:9080"} None
+node[k] OPTIONS /leader -> 200 -  None
+node[k] OTHER /leader -> 200 application/json {"leader":"10.0.0.1:9080"} None
+node[k] GET /leader/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /leader/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /leader/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /leader/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /leader/ -> 200 -  None
+node[k] OTHER /leader/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1 -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1 -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1 -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1 -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1 -> 200 -  None
+node[k] OTHER /v1 -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/ -> 200 -  None
+node[k] OTHER /v1/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/agents -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/agents -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/agents -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/agents -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/agents -> 200 -  None
+node[k] OTHER /v1/agents -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/agents/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/agents/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/agents/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/agents/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/agents/ -> 200 -  None
+node[k] OTHER /v1/agents/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/agents/x -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/agents/x -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/agents/x -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/agents/x -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/agents/x -> 200 -  None
+node[k] OTHER /v1/agents/x -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/agents/x/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/agents/x/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/agents/x/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/agents/x/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/agents/x/logs/t/stdout -> 200 -  None
+node[k] OTHER /v1/agents/x/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/jobs -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/jobs -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/jobs -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/jobs -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/jobs -> 200 -  None
+node[k] OTHER /v1/jobs -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/jobs/ -> 200 -  None
+node[k] OTHER /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/jobs/a/b -> 200 -  None
+node[k] OTHER /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/status -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/status -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/status -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/status -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/status -> 200 -  None
+node[k] OTHER /v1/status -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/status/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/status/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/status/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/status/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/status/ -> 200 -  None
+node[k] OTHER /v1/status/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/tasks -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/tasks -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/tasks -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/tasks -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/tasks -> 200 -  None
+node[k] OTHER /v1/tasks -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/events -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/events -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/events -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/events -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/events -> 200 -  None
+node[k] OTHER /v1/events -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /v1/eventsx -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /v1/eventsx -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /v1/eventsx -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /v1/eventsx -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /v1/eventsx -> 200 -  None
+node[k] OTHER /v1/eventsx -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /logs -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /logs -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /logs -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /logs -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /logs -> 200 -  None
+node[k] OTHER /logs -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /logs/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /logs/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /logs/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /logs/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /logs/ -> 200 -  None
+node[k] OTHER /logs/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /logs/t -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /logs/t -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /logs/t -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /logs/t -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /logs/t -> 200 -  None
+node[k] OTHER /logs/t -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /logs/t/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /logs/t/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /logs/t/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /logs/t/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /logs/t/ -> 200 -  None
+node[k] OTHER /logs/t/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /logs/t/stdout -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /logs/t/stdout -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /logs/t/stdout -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /logs/t/stdout -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /logs/t/stdout -> 200 -  None
+node[k] OTHER /logs/t/stdout -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /logs/t/stderr/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /logs/t/stderr/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /logs/t/stderr/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /logs/t/stderr/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /logs/t/stderr/ -> 200 -  None
+node[k] OTHER /logs/t/stderr/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /logs/t/x -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /logs/t/x -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /logs/t/x -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /logs/t/x -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /logs/t/x -> 200 -  None
+node[k] OTHER /logs/t/x -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /logs/t/stdout/more -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /logs/t/stdout/more -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /logs/t/stdout/more -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /logs/t/stdout/more -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /logs/t/stdout/more -> 200 -  None
+node[k] OTHER /logs/t/stdout/more -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /capacity -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /capacity -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /capacity -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /capacity -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /capacity -> 200 -  None
+node[k] OTHER /capacity -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /capacity/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /capacity/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /capacity/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /capacity/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /capacity/ -> 200 -  None
+node[k] OTHER /capacity/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /tasks -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /tasks -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /tasks -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /tasks -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /tasks -> 200 -  None
+node[k] OTHER /tasks -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /tasks/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /tasks/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /tasks/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /tasks/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /tasks/ -> 200 -  None
+node[k] OTHER /tasks/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /run -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /run -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /run -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /run -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /run -> 200 -  None
+node[k] OTHER /run -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /run/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /run/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /run/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /run/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /run/ -> 200 -  None
+node[k] OTHER /run/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /flip -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /flip -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /flip -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /flip -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /flip -> 200 -  None
+node[k] OTHER /flip -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /restart -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /restart -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /restart -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /restart -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /restart -> 200 -  None
+node[k] OTHER /restart -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /delete -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /delete -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /delete -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /delete -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /delete -> 200 -  None
+node[k] OTHER /delete -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /delete/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /delete/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /delete/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /delete/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /delete/ -> 200 -  None
+node[k] OTHER /delete/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /delete/j -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /delete/j -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /delete/j -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /delete/j -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /delete/j -> 200 -  None
+node[k] OTHER /delete/j -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /delete/j/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /delete/j/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /delete/j/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /delete/j/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /delete/j/ -> 200 -  None
+node[k] OTHER /delete/j/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /delete/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /delete/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /delete/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /delete/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /delete/a/b -> 200 -  None
+node[k] OTHER /delete/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /stop -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /stop -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /stop -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /stop -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /stop -> 200 -  None
+node[k] OTHER /stop -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /stop/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /stop/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /stop/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /stop/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /stop/ -> 200 -  None
+node[k] OTHER /stop/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /stop/j -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /stop/j -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /stop/j -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /stop/j -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /stop/j -> 200 -  None
+node[k] OTHER /stop/j -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /stop/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /stop/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /stop/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /stop/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /stop/a/b -> 200 -  None
+node[k] OTHER /stop/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /stop-task -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /stop-task -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /stop-task -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /stop-task -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /stop-task -> 200 -  None
+node[k] OTHER /stop-task -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /stop-task/ -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /stop-task/ -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /stop-task/ -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /stop-task/ -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /stop-task/ -> 200 -  None
+node[k] OTHER /stop-task/ -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /stop-task/t1 -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /stop-task/t1 -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /stop-task/t1 -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /stop-task/t1 -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /stop-task/t1 -> 200 -  None
+node[k] OTHER /stop-task/t1 -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /stop-task/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /stop-task/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /stop-task/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /stop-task/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /stop-task/a/b -> 200 -  None
+node[k] OTHER /stop-task/a/b -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /stopx -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /stopx -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /stopx -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /stopx -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /stopx -> 200 -  None
+node[k] OTHER /stopx -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /unknown -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /unknown -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /unknown -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /unknown -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /unknown -> 200 -  None
+node[k] OTHER /unknown -> 401 application/json {"error":"unauthorized"} None
+node[k] GET /a/b/c -> 401 application/json {"error":"unauthorized"} None
+node[k] POST /a/b/c -> 401 application/json {"error":"unauthorized"} None
+node[k] DELETE /a/b/c -> 401 application/json {"error":"unauthorized"} None
+node[k] PATCH /a/b/c -> 401 application/json {"error":"unauthorized"} None
+node[k] OPTIONS /a/b/c -> 200 -  None
+node[k] OTHER /a/b/c -> 401 application/json {"error":"unauthorized"} None
+leader[k] GET / -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST / -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE / -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH / -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS / -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER / -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[k] POST /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[k] DELETE /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[k] PATCH /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[k] OPTIONS /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[k] OTHER /health -> 200 application/json {"status":"ok"} None jobs=1 agents=1
+leader[k] GET /health/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /health/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /health/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /health/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /health/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /health/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /leader -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /leader -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /leader -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /leader -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /leader -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /leader -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/tasks -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/tasks -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/tasks -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/tasks -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/tasks -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/tasks -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/tasks/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/tasks/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/tasks/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/tasks/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/tasks/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/tasks/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/j/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/j/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/j/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/j/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/j/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/j/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/none/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/none/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/none/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/none/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/none/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/none/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/a/b/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/a/b/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/a/b/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/a/b/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/a/b/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/a/b/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/j/status/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/j/status/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/j/status/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/j/status/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/j/status/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/j/status/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/j -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/j -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/j -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/j -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/j -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/j -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/j/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/j/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/j/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/j/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/j/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/j/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/j/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/j/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/j/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/j/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/j/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/j/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/a/b/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/a/b/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/a/b/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/a/b/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/a/b/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/a/b/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/j/priority/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/j/priority/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/j/priority/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/j/priority/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/j/priority/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/j/priority/priority -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/jobs/j/priority/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/jobs/j/priority/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/jobs/j/priority/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/jobs/j/priority/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/jobs/j/priority/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/jobs/j/priority/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/events -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/events -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/events -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/events -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/events -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/events -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/events/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/events/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/events/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/events/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/events/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/events/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a/b -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1/capacity/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1/capacity/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1/capacity/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1/capacity/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1/capacity/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1/capacity/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/nope/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/nope/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/nope/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/nope/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/nope/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/nope/capacity -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1/logs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1/logs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1/logs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1/logs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1/logs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1/logs -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1/logs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1/logs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1/logs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1/logs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1/logs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1/logs/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1/logs/t -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1/logs/t -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1/logs/t -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1/logs/t -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1/logs/t -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1/logs/t -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1/logs/t/stderr?follow=0 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1/logs/t/stderr?follow=0 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1/logs/t/stderr?follow=0 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1/logs/t/stderr?follow=0 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1/logs/t/stderr?follow=0 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1/logs/t/stderr?follow=0 -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1/logs/t/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1/logs/t/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1/logs/t/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1/logs/t/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1/logs/t/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1/logs/t/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/a1/logs/t/stdout/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/a1/logs/t/stdout/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/a1/logs/t/stdout/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/a1/logs/t/stdout/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/a1/logs/t/stdout/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/a1/logs/t/stdout/x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/agents/nope/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/agents/nope/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/agents/nope/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/agents/nope/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/agents/nope/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/agents/nope/logs/t/stdout -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/heartbeat -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/heartbeat -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/heartbeat -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/heartbeat -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/heartbeat -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/heartbeat -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/heartbeat/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/heartbeat/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/heartbeat/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/heartbeat/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/heartbeat/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/heartbeat/ -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/notify -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/notify -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/notify -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/notify -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/notify -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/notify -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/status -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /v1/statusx -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /v1/statusx -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /v1/statusx -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /v1/statusx -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /v1/statusx -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /v1/statusx -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] GET /x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] POST /x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] DELETE /x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] PATCH /x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OPTIONS /x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1
+leader[k] OTHER /x -> 401 application/json {"error":"unauthorized"} None jobs=1 agents=1

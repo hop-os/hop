@@ -11,6 +11,7 @@ use agent::{Agent, Error as AgentError};
 use types::json::{self, Value};
 use types::{Job, Nanos};
 
+use crate::routes::{Lookup, Routes, value};
 use crate::{Method, Request, Response, check_auth, reply, s};
 
 /// Hoe groot een body is die de proxy naar de leader doorgeeft.
@@ -70,12 +71,82 @@ pub enum Effect {
     },
 }
 
+/// Een route van de agent-API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Route {
+    /// `/health`, vóór de HMAC.
+    Health,
+    /// `/leader`, vóór de HMAC.
+    Leader,
+    /// De clusterroutes onder `/v1`: door naar de leader.
+    Proxy,
+    /// `/logs/{taak}/{stroom}`.
+    Logs,
+    /// `/capacity`.
+    Capacity,
+    /// `/tasks`.
+    Tasks,
+    /// `/run`.
+    Run,
+    /// `/flip`.
+    Flip,
+    /// `/restart`.
+    Restart,
+    /// `/delete/{job}`.
+    Delete,
+    /// `/stop/{job}`.
+    Stop,
+    /// `/stop-task/{taak}`.
+    StopTask,
+}
+
+/// De routetabel van de agent-API.
+///
+/// Zonder methode: elke route kiest zelf wat een verkeerde methode krijgt
+/// (een 405 bij `/run`, `/flip`, `/restart` en de drie onder `/delete/`,
+/// `/stop/` en `/stop-task/`; de rest bedient elke methode, zoals Go).
+/// Een naam of id met een `/` erin blijft een naam (`{...}` vangt de rest),
+/// en een lege (`/delete/`) een 400 in de handler.
+const ROUTES: [(&str, Route); 18] = [
+    ("/health", Route::Health),
+    ("/leader", Route::Leader),
+    ("/v1/agents", Route::Proxy),
+    ("/v1/agents/", Route::Proxy),
+    ("/v1/jobs", Route::Proxy),
+    ("/v1/jobs/", Route::Proxy),
+    ("/v1/status", Route::Proxy),
+    ("/v1/tasks", Route::Proxy),
+    ("/v1/events", Route::Proxy),
+    ("/logs/{rest...}", Route::Logs),
+    ("/capacity", Route::Capacity),
+    ("/tasks", Route::Tasks),
+    ("/run", Route::Run),
+    ("/flip", Route::Flip),
+    ("/restart", Route::Restart),
+    ("/delete/{name...}", Route::Delete),
+    ("/stop/{name...}", Route::Stop),
+    ("/stop-task/{id...}", Route::StopTask),
+];
+
 /// De agent-API.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug)]
 pub struct NodeApi {
     key: Vec<u8>,
     /// De node is een HopOS-node: `/flip` en `/restart` gaan naar de kern.
     flip_enabled: bool,
+    routes: Routes<Route>,
+}
+
+impl Default for NodeApi {
+    fn default() -> Self {
+        Self::new(b"", false)
+    }
+}
+
+impl Clone for NodeApi {
+    fn clone(&self) -> Self {
+        Self::new(&self.key, self.flip_enabled)
+    }
 }
 
 impl NodeApi {
@@ -85,6 +156,7 @@ impl NodeApi {
         Self {
             key: key.to_vec(),
             flip_enabled,
+            routes: Routes::new(&ROUTES),
         }
     }
 
@@ -115,38 +187,33 @@ impl NodeApi {
         if req.method == Method::Options {
             return none(Response::empty(200));
         }
-        let path = req.path.as_str();
-        match path {
-            "/health" => return none(reply(200, [("status", s("ok"))])),
-            "/leader" => return none(leader(agent)),
-            _ => {}
-        }
-        if let Some(reject) = check_auth(&self.key, req) {
+        let (route, lr) = match self.routes.find(req) {
+            Lookup::Hit(route, lr) => (Some(route), lr),
+            Lookup::Miss => (None, leanhttp::Request::default()),
+            Lookup::Broken => return none(Response::error(500, "internal error")),
+        };
+        // `/health` en `/leader` vóór de HMAC; een onbekend pad erna.
+        if !matches!(route, Some(Route::Health | Route::Leader))
+            && let Some(reject) = check_auth(&self.key, req)
+        {
             return none(reject);
         }
-        if is_proxy_route(path) {
-            return proxy(agent, req);
-        }
-        if let Some(rest) = path.strip_prefix("/logs/") {
-            return logs(rest);
-        }
-        let r = match path {
-            "/capacity" => capacity(agent),
-            "/tasks" => tasks(agent),
-            "/run" => run(agent, now, pool_largest, req),
-            "/flip" => return self.flip(req),
-            "/restart" => return self.restart(req),
-            _ => {
-                if let Some(name) = path.strip_prefix("/delete/") {
-                    delete(agent, now, req, name)
-                } else if let Some(name) = path.strip_prefix("/stop/") {
-                    stop(agent, req, name)
-                } else if let Some(id) = path.strip_prefix("/stop-task/") {
-                    stop_task(agent, req, id)
-                } else {
-                    Response::error(404, "not found")
-                }
-            }
+        let Some(route) = route else {
+            return none(Response::error(404, "not found"));
+        };
+        let r = match route {
+            Route::Health => reply(200, [("status", s("ok"))]),
+            Route::Leader => leader(agent),
+            Route::Proxy => return proxy(agent, req),
+            Route::Logs => return logs(value(&lr, "rest")),
+            Route::Capacity => capacity(agent),
+            Route::Tasks => tasks(agent),
+            Route::Run => run(agent, now, pool_largest, req),
+            Route::Flip => return self.flip(req),
+            Route::Restart => return self.restart(req),
+            Route::Delete => delete(agent, now, req, value(&lr, "name")),
+            Route::Stop => stop(agent, req, value(&lr, "name")),
+            Route::StopTask => stop_task(agent, req, value(&lr, "id")),
         };
         none(r)
     }
@@ -293,14 +360,6 @@ pub fn cors(req: &Request, resp: &mut Response) {
     for (k, v) in cors_headers(req) {
         resp.set_header(k, v);
     }
-}
-
-fn is_proxy_route(path: &str) -> bool {
-    matches!(
-        path,
-        "/v1/agents" | "/v1/jobs" | "/v1/status" | "/v1/tasks" | "/v1/events"
-    ) || path.starts_with("/v1/agents/")
-        || path.starts_with("/v1/jobs/")
 }
 
 fn proxy(agent: &Agent, req: &Request) -> (Response, Effect) {
@@ -468,9 +527,14 @@ fn logs(rest: &str) -> (Response, Effect) {
 
 #[cfg(test)]
 mod flip_tests {
-    //! `POST /flip`: alleen warm.
+    //! `POST /flip`: alleen warm; en de routetabel.
     use super::*;
     use crate::Method;
+
+    #[test]
+    fn the_route_table_builds() {
+        assert!(Routes::new(&ROUTES).is_built());
+    }
 
     fn api_agent() -> Agent {
         Agent::new(agent::Settings {

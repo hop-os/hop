@@ -37,6 +37,7 @@ extern crate alloc;
 mod cluster;
 mod leader;
 mod node;
+mod routes;
 mod stream;
 
 use alloc::string::String;

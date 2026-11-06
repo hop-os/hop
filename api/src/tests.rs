@@ -1275,8 +1275,14 @@ fn job_status_of_a_job_placed_nowhere_has_an_empty_map() {
         core::str::from_utf8(&r.body).unwrap(),
         r#"{"agents":null,"tasks_by_agent":{}}"#
     );
-    let (r, _) = leffect(&mut c, Method::Get, "/v1/jobs//status", "");
+    // Een lege naam: 400.
+    let (r, _) = leffect(&mut c, Method::Get, "/v1/jobs/status", "");
     assert_eq!(r.status, 400);
+    // Een niet-canoniek pad komt over de draad nooit binnen (leanhttp
+    // weigert het met een 400); met de hand gebouwd routeert het sinds de
+    // Mux nergens heen (06-11-2026; daarvoor de 400 van een lege naam).
+    let (r, _) = leffect(&mut c, Method::Get, "/v1/jobs//status", "");
+    assert_eq!(r.status, 404);
 }
 
 #[test]
@@ -1392,3 +1398,5 @@ fn cors_on_every_agent_answer_even_a_refusal() {
         Some("true")
     );
 }
+
+mod routes;

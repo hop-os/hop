@@ -190,8 +190,9 @@ fn worker(l: &TcpListener, w: &Worker) {
     }
 }
 
+/// Bedient één verbinding, verzoek na verzoek ([`hostnet::serve_conn`]).
 async fn serve(conn: Capped, w: &Worker) -> leanhttp::Result {
-    let out = leanhttp::serve(conn, async |ex: &mut Exchange<'_, Capped>| {
+    hostnet::serve_conn(conn, async |ex: &mut Exchange<'_, Capped>| {
         let req = read_request(ex).await?;
         if w.busy.load(Ordering::Acquire) >= WORKERS {
             // Elke thread bezet: na dit antwoord dicht, zodat de wachtende
@@ -212,10 +213,7 @@ async fn serve(conn: Capped, w: &Worker) -> leanhttp::Result {
         let _guard = reply.is_stream().then(|| StreamGuard(w.owner.clone()));
         execute(ex, w, &req, reply).await
     })
-    .await?;
-    // Geen route neemt de verbinding over; komt er toch een terug, dan valt hij hier.
-    drop(out);
-    Ok(())
+    .await
 }
 
 /// Voert het antwoord van de eigenaar uit op de verbinding.

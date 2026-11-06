@@ -7,10 +7,11 @@
 //! ingebakken bestanden met [`hop_gui::serve`], dezelfde handler als de
 //! host-binary.
 //!
-//! De vorm (handboek §2), die van `apps/welcome` in HopOS: één taak
-//! accepteert en geeft elke verbinding als waarde aan een vrije werker uit
-//! een vaste pool van [`WORKERS`]; een werker bezit zijn verbinding tot hij
-//! sluit. Geen taak per verbinding.
+//! De vorm (handboek §2): `applibhttp` uit HopOS, een acceptor met een park
+//! voor stille keep-alive-verbindingen en een vaste pool van [`WORKERS`]
+//! werkers. Een werker bedient één verzoek; een verbinding die mag blijven,
+//! wacht in het park van de acceptor, niet bij een werker. Geen taak per
+//! verbinding.
 //!
 //! Marker: `HOPOS_HOPGUI_UP files=<n> bytes=<n> port=<n>` als de listener
 //! staat. Per verzoek niets: een dashboard dat elke tien seconden ververst,
@@ -20,16 +21,13 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
-use applib::appnet::{self, TcpListener, TcpStream};
+use alloc::boxed::Box;
+use applib::appnet::{self, TcpListener};
 use applib::rt::Exec;
 use applib::tcp::TcpConn;
 use applib::{App, EXEC, log};
-use core::cell::Cell;
 use core::time::Duration;
 use leanhttp::Exchange;
-use sync::Local;
-use sync::spsc::{Channel, Receiver, Sender};
 
 applib::main!(hop_gui_app);
 
@@ -41,47 +39,39 @@ fn main() {}
 /// De poort zonder `ER_PORT_HTTP` (een image buiten Hop om).
 const DEFAULT_PORT: u16 = 80;
 
-/// De werkers: zoveel verbindingen tegelijk. Een browser opent er tot zes
+/// De werkers: zoveel verzoeken tegelijk. Een browser opent er tot zes
 /// naar één host bij de eerste lading (html, twee scripts, de stijlen, het
 /// font); vier dekt dat, de rest wacht kort op de eerste die vrijkomt.
 const WORKERS: usize = 4;
 
-/// De langste stilte op een keep-alive-verbinding: met een vaste pool houdt
-/// een stille browser anders een werker een minuut vast.
+/// Zoveel stille keep-alive-verbindingen houdt het park; daarboven gaat een
+/// verbinding na haar antwoord dicht. Een paar browsers met elk zes.
+const PARKED: usize = 32;
+
+/// De kap op elke leestermijn van een verzoek (kop en body): een client die
+/// langzaam druppelt, houdt een werker hooguit zo lang vast. Tot 06-11-2026
+/// ook de stilte tussen twee verzoeken; die is nu van het park ([`IDLE`]).
 const READ_CAP: Duration = Duration::from_secs(5);
 
-/// Hoe vaak de acceptor kijkt of er een werker vrij is, als ze alle vier
-/// bezig zijn. Een koud pad, dus pollen is eenvoudiger dan een bel.
-const BUSY_POLL: Duration = Duration::from_millis(5);
+/// Hoe lang een keep-alive-verbinding stil in het park mag staan: dezelfde
+/// 5 s als toen de werker haar zelf vasthield ([`READ_CAP`]).
+const IDLE: Duration = Duration::from_secs(5);
 
-/// De rij naar elke werker: één verbinding tegelijk.
-static QUEUES: Local<[Channel<TcpStream, 1>; WORKERS]> =
-    Local::new([const { Channel::new() }; WORKERS]);
-
-/// Welke werker een verbinding heeft. De acceptor zet de vlag bij de
-/// overdracht, de werker wist hem als de verbinding dicht is; beide op de
-/// executor van deze core, nooit over een `.await` geleend.
-static BUSY: Local<[Cell<bool>; WORKERS]> = Local::new([const { Cell::new(false) }; WORKERS]);
+/// De server: acceptor, park en werkers (`applibhttp`).
+static HTTP: applibhttp::Http<WORKERS, PARKED> = applibhttp::Http::new()
+    .with_read_cap(READ_CAP)
+    .with_idle(IDLE);
 
 #[expect(
     clippy::expect_used,
-    reason = "de start van de bin: zonder netstack of poort is er niets te serveren, en een luide paniek met reden is het goede einde"
+    clippy::panic,
+    reason = "de start van de bin: zonder netstack, poort of werker is er niets te serveren, en een luide paniek met reden is het goede einde"
 )]
 async fn hop_gui_app(app: &'static App) {
     let exec: &'static Exec = EXEC.get();
     let port = port_of(app.env("ER_PORT_HTTP"));
     let net = appnet::up(app).expect("hop-gui: network stack");
     let listener = TcpListener::bind(port).expect("hop-gui: listen on ER_PORT_HTTP");
-    let mut senders: Vec<Sender<'static, TcpStream, 1>> = Vec::new();
-    senders
-        .try_reserve_exact(WORKERS)
-        .expect("hop-gui: worker table");
-    for (i, q) in QUEUES.get().iter().enumerate() {
-        let (tx, rx) = q.split().expect("hop-gui: queue split once");
-        senders.push(tx);
-        exec.spawn(worker(i, rx, exec))
-            .expect("hop-gui: spawn worker");
-    }
     let [a, b, c, d] = net.ip();
     log!(
         "hop-gui: serving the Hop dashboard on {a}.{b}.{c}.{d}:{port}, slot {}, {WORKERS} workers HOPOS_HOPGUI_UP files={} bytes={} port={port}",
@@ -89,7 +79,14 @@ async fn hop_gui_app(app: &'static App) {
         hop_gui::FILES.len(),
         hop_gui::total_bytes()
     );
-    accept(listener, &mut senders, exec).await;
+    // Een verbinding die eindigt met een termijn of een reset is een
+    // browser die wegging; dat is geen logregel waard (applibhttp logt niet).
+    let handler: &'static _ = Box::leak(Box::new(async |ex: &mut Exchange<'_, TcpConn>| {
+        hop_gui::serve(ex).await
+    }));
+    // Keert alleen terug als er geen werker te spawnen was.
+    HTTP.run(exec, listener, handler).await;
+    panic!("hop-gui: no worker could be spawned HOPOS_HOPGUI_SPAWN");
 }
 
 /// De poort uit `ER_PORT_HTTP`, of [`DEFAULT_PORT`] zonder of bij onzin
@@ -103,65 +100,6 @@ fn port_of(env: Option<&str>) -> u16 {
                 "hop-gui: ER_PORT_HTTP={env:?} is not a port, using {DEFAULT_PORT} HOPOS_HOPGUI_PORT"
             );
             DEFAULT_PORT
-        }
-    }
-}
-
-/// De acceptor: elke verbinding naar de eerste vrije werker.
-async fn accept(
-    listener: TcpListener,
-    senders: &mut [Sender<'static, TcpStream, 1>],
-    exec: &'static Exec,
-) {
-    loop {
-        let mut stream = match listener.accept().await {
-            Ok(s) => s,
-            Err(e) => {
-                log!("hop-gui: accept: {e} HOPOS_HOPGUI_ACCEPT");
-                exec.after(Duration::from_millis(100)).await;
-                continue;
-            }
-        };
-        while let Some(back) = hand_off(stream, senders) {
-            stream = back;
-            exec.after(BUSY_POLL).await;
-        }
-    }
-}
-
-/// Geeft `stream` aan een vrije werker; alle werkers bezig is `Some` terug.
-fn hand_off(stream: TcpStream, senders: &mut [Sender<'static, TcpStream, 1>]) -> Option<TcpStream> {
-    let busy = BUSY.get();
-    let free = senders
-        .iter_mut()
-        .zip(busy.iter())
-        .find(|(tx, b)| !b.get() && tx.free() > 0);
-    match free {
-        Some((tx, b)) => match tx.try_send(stream) {
-            Ok(()) => {
-                b.set(true);
-                None
-            }
-            Err(sync::Full(back)) => Some(back),
-        },
-        None => Some(stream),
-    }
-}
-
-/// Eén werker: wacht op een verbinding, bedient hem met leanhttp tot hij
-/// sluit, en meldt zich weer vrij.
-async fn worker(i: usize, mut rx: Receiver<'static, TcpStream, 1>, exec: &'static Exec) {
-    loop {
-        let stream = rx.recv().await;
-        let conn = TcpConn::new(stream, exec).with_read_cap(READ_CAP);
-        // Een verbinding die eindigt met een termijn of een reset is een
-        // browser die wegging; dat is geen logregel waard.
-        let _ = leanhttp::serve(conn, async |ex: &mut Exchange<'_, TcpConn>| {
-            hop_gui::serve(ex).await
-        })
-        .await;
-        if let Some(b) = BUSY.get().get(i) {
-            b.set(false);
         }
     }
 }

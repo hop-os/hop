@@ -28,8 +28,8 @@ use alloc::vec::Vec;
 use core::time::Duration;
 
 use api::{Method, Request, Response, TasksScope};
-use hop_http::{Reply, Streams};
-use leanhttp::{AsyncRead, AsyncWrite, Close, Exchange};
+use hop_http::{Reply, Streams, Turn};
+use leanhttp::{AsyncRead, AsyncWrite, Close, Exchange, Outcome};
 use types::Task;
 
 use crate::Port;
@@ -395,32 +395,39 @@ fn head_of(req: &Request) -> Request {
     }
 }
 
-/// Bedient één verbinding zoals [`hop_http::serve`], met de doorgiftes erbij.
+/// Bedient één verzoek op `turn` zoals [`hop_http::serve`], met de doorgiftes erbij.
 ///
 /// Een [`Routed::Reply`] gaat zoals altijd (een stroom van de eigenaar via
 /// `streams`); een [`Routed::Forward`] voert deze taak zelf uit met `client`.
 /// Na elke stroom, op elk pad, meldt `streams.done()` hem af.
 ///
+/// Mag de verbinding blijven, dan komt ze terug als [`Outcome::Kept`]: de
+/// werker geeft haar aan het park van de acceptor (`crate::Park`), en een
+/// stille keep-alive-client houdt zo geen werker vast. Geen route neemt de
+/// verbinding over ([`Outcome::Hijacked`] komt niet voor).
+///
 /// `crowded` zegt per verzoek of elke werker van de pool bezet is. Dan
 /// krijgt het antwoord `Connection: close` en gaat de verbinding erna
-/// dicht, in plaats van tot de leestermijn open te blijven voor een
-/// keep-alive-client die misschien niets meer vraagt. Een browser opent
-/// zijn parallelle verzoeken op eigen verbindingen; zonder dit wachtte de
-/// derde op de stilte van de eerste (gemeten: 2, 4, 6 s voor leader,
-/// agents en jobs op het dashboard). Go had een goroutine per verbinding
-/// en kende dit wachten niet.
+/// dicht. Zo begon het: een werker hield zijn keep-alive-verbinding vast
+/// tot de leestermijn, en een browser die zijn parallelle verzoeken op
+/// eigen verbindingen opent, wachtte op de stilte van de eerste (gemeten:
+/// 2, 4, 6 s voor leader, agents en jobs op het dashboard). Sinds het park
+/// (06-11-2026) houdt een stille verbinding geen werker meer vast; de kop
+/// blijft, zodat een pool die echt vol is (stromen, trage doorgiftes) niet
+/// ook nog het park vult. Go had een goroutine per verbinding en kende dit
+/// wachten niet.
 ///
 /// `crowded` wordt ook ná de handler gevraagd: een verzoek dat de node laat
 /// vertrekken (`POST /restart`), krijgt zo zijn antwoord met `Connection:
 /// close`, en de werker is vrij zodra het geschreven is.
 pub async fn serve<X, H, S, C, R>(
-    conn: X,
+    turn: Turn<X>,
     mut handler: H,
     streams: &mut S,
     client: &mut Client<C, R>,
     port: Port,
     mut crowded: impl FnMut() -> bool,
-) -> Result<(), leanhttp::Error>
+) -> Result<Outcome<X>, leanhttp::Error>
 where
     X: AsyncRead + AsyncWrite + Close,
     H: AsyncFnMut(Request) -> Routed,
@@ -428,7 +435,7 @@ where
     C: Connect,
     R: Resolve,
 {
-    let out = leanhttp::serve(conn, async |ex: &mut Exchange<'_, X>| {
+    turn.serve(async |ex: &mut Exchange<'_, X>| {
         let req = hop_http::read_request(ex).await?;
         if crowded() {
             hop_http::close_after(ex)?;
@@ -462,9 +469,5 @@ where
             }
         }
     })
-    .await?;
-    // Geen enkele route neemt de verbinding over; komt er toch een terug,
-    // dan valt hij hier (Drop sluit hem).
-    drop(out);
-    Ok(())
+    .await
 }

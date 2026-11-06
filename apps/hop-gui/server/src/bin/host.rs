@@ -163,7 +163,7 @@ fn worker(l: &TcpListener) {
         let conn = Capped(StdConn::new(stream, Some(READ_CAP)));
         // Een verbinding die eindigt met een termijn of een reset is een
         // browser die wegging; geen logregel waard.
-        let _ = block_on(leanhttp::serve(
+        let _ = block_on(hostnet::serve_conn(
             conn,
             async |ex: &mut Exchange<'_, Capped>| hop_gui::serve(ex).await,
         ));

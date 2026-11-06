@@ -277,7 +277,7 @@ fn serve_loop(rx: &Receiver<Msg>, mux: &Mux<Route>) {
                 let snapshot = latest.as_deref();
                 // Een verbinding die eindigt met een termijn of een reset is
                 // een client die wegging; geen logregel waard.
-                let _ = block_on(leanhttp::serve(
+                let _ = block_on(hostnet::serve_conn(
                     conn,
                     async |ex: &mut Exchange<'_, Capped>| {
                         http::handle(ex, mux, || http::body(snapshot, host::now())).await

@@ -6,10 +6,12 @@
 //! - **poll** (de app-taak zelf): bezit de [`Collector`] en de
 //!   [`SlotSource`]. Elke `HOPPROM_INTERVAL` één ronde; een geslaagde ronde
 //!   schrijft zijn [`Metrics`] in [`LATEST`].
-//! - **server**: accepteert op `ER_PORT_METRICS` (standaard 9090; de kern
-//!   zet de poort van de jobspec op de uplink door naar dit slot) en bedient
-//!   de verbindingen één voor één. Een scrape leent [`LATEST`] binnen één
-//!   synchrone render en schrijft daarna pas.
+//! - **server**: `applibhttp` uit HopOS op `ER_PORT_METRICS` (standaard
+//!   9090; de kern zet de poort van de jobspec op de uplink door naar dit
+//!   slot): een acceptor met een park voor stille keep-alive-verbindingen
+//!   (een scraper die zijn verbinding tussen twee scrapes openhoudt, houdt
+//!   zo geen werker vast) en [`WORKERS`] werkers. Een scrape leent
+//!   [`LATEST`] binnen één synchrone render en schrijft daarna pas.
 //!
 //! De env: `HOPPROM_AGENT` (standaard `http://HOP:8080`, met `HOP` voor het
 //! slot van Hop), `HOPPROM_INTERVAL` (een Go-duur, standaard `5s`),
@@ -33,6 +35,9 @@
     )
 )]
 
+extern crate alloc;
+
+use alloc::boxed::Box;
 use core::cell::RefCell;
 use core::time::Duration;
 
@@ -55,9 +60,29 @@ applib::main!(hopprom_main);
 #[cfg(not(target_os = "none"))]
 fn main() {}
 
-/// De langste stilte op een verbinding: met één server houdt een stille
-/// keep-alive anders de volgende scrape tegen.
+/// De werkers van de server. Tot 06-11-2026 bediende één taak de
+/// verbindingen één voor één; twee laten een health-check door terwijl een
+/// trage scraper leest.
+const WORKERS: usize = 2;
+
+/// Zoveel stille keep-alive-verbindingen houdt het park (een paar
+/// Prometheus-servers en een health-check); daarboven gaat een verbinding
+/// na haar antwoord dicht.
+const PARKED: usize = 16;
+
+/// De kap op elke leestermijn van een verzoek (kop en body): een client die
+/// langzaam druppelt, houdt een werker hooguit zo lang vast. Tot 06-11-2026
+/// ook de stilte tussen twee verzoeken; die is nu van het park ([`IDLE`]).
 const READ_CAP: Duration = Duration::from_secs(5);
+
+/// Hoe lang een keep-alive-verbinding stil in het park mag staan: dezelfde
+/// 5 s als toen de werker haar zelf vasthield ([`READ_CAP`]).
+const IDLE: Duration = Duration::from_secs(5);
+
+/// De server: acceptor, park en werkers (`applibhttp`).
+static HTTP: applibhttp::Http<WORKERS, PARKED> = applibhttp::Http::new()
+    .with_read_cap(READ_CAP)
+    .with_idle(IDLE);
 
 /// De metrics van de laatste geslaagde ronde. Een leesbare tabel (handboek
 /// §1.1): de poll-taak schrijft, de server leest, beide op deze executor en
@@ -91,7 +116,7 @@ async fn hopprom_main(app: &'static App) {
 
     let net = appnet::up(app).expect("hopprom: network stack");
     let listener = TcpListener::bind(port).expect("hopprom: listen on ER_PORT_METRICS");
-    let mux = http::mux().expect("hopprom: routes");
+    let mux: &'static Mux<Route> = Box::leak(Box::new(http::mux().expect("hopprom: routes")));
     exec.spawn(server(listener, mux, exec, app))
         .expect("hopprom: spawn server");
     let [a, b, c, d] = net.ip();
@@ -161,28 +186,24 @@ async fn poll_loop(mut src: SlotSource, interval: Duration, exec: &'static Exec,
     }
 }
 
-/// De server-taak: één verbinding tegelijk.
-async fn server(listener: TcpListener, mux: Mux<Route>, exec: &'static Exec, app: &'static App) {
-    loop {
-        let stream = match listener.accept().await {
-            Ok(s) => s,
-            Err(e) => {
-                log!("hopprom: accept: {e} HOPOS_HOPPROM_ACCEPT");
-                exec.after(Duration::from_millis(100)).await;
-                continue;
-            }
-        };
-        let conn = TcpConn::new(stream, exec).with_read_cap(READ_CAP);
-        // Een verbinding die eindigt met een termijn of een reset is een
-        // scraper die wegging; geen logregel waard.
-        let _ = leanhttp::serve(conn, async |ex: &mut Exchange<'_, TcpConn>| {
-            http::handle(ex, &mux, || {
-                // De lening eindigt in dit blok, vóór de eerste schrijf.
-                let latest = LATEST.get().borrow();
-                http::body(latest.as_ref(), wall(app))
-            })
-            .await
+/// De server-taak: de acceptor van `applibhttp`, met [`WORKERS`] werkers.
+async fn server(
+    listener: TcpListener,
+    mux: &'static Mux<Route>,
+    exec: &'static Exec,
+    app: &'static App,
+) {
+    // Een verbinding die eindigt met een termijn of een reset is een
+    // scraper die wegging; geen logregel waard (applibhttp logt niet).
+    let handler: &'static _ = Box::leak(Box::new(async |ex: &mut Exchange<'_, TcpConn>| {
+        http::handle(ex, mux, || {
+            // De lening eindigt in dit blok, vóór de eerste schrijf.
+            let latest = LATEST.get().borrow();
+            http::body(latest.as_ref(), wall(app))
         })
-        .await;
-    }
+        .await
+    }));
+    // Keert alleen terug als er geen werker te spawnen was.
+    HTTP.run(exec, listener, handler).await;
+    log!("hopprom: no server worker could be spawned, /metrics is down HOPOS_HOPPROM_SERVE_FAIL");
 }

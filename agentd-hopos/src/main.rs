@@ -18,10 +18,13 @@
 //!   tientallen MB houdt de API zo niet meer vast (03-10);
 //! - per poort één acceptor en een vaste pool van [`WORKERS`] werkers
 //!   (agent op P, leader op P + 1000): de acceptor geeft elke verbinding als
-//!   waarde aan een vrije werker ([`Handoff`]); de werker draait leanhttp
-//!   en stuurt elk verzoek als bericht naar de eigenaar. Een open stroom
-//!   (`/v1/events`, een log-tail) houdt zijn werker vast en vraagt de
-//!   eigenaar elke halve seconde wat er bij kwam.
+//!   waarde aan een vrije werker ([`Handoff`]); de werker bedient er één
+//!   verzoek op met leanhttp en stuurt het als bericht naar de eigenaar.
+//!   Mag de verbinding blijven (keep-alive), dan gaat ze terug naar het
+//!   park van de acceptor ([`Park`]), die haar bij het volgende verzoek
+//!   weer aan een vrije werker geeft: een stille verbinding houdt zo geen
+//!   werker vast. Een open stroom (`/v1/events`, een log-tail) houdt zijn
+//!   werker vast en vraagt de eigenaar elke halve seconde wat er bij kwam.
 //!
 //! - de kloktaak: elk uur een SNTP-meting (`pool.ntp.org`) als bericht naar
 //!   de eigenaar, die de klok van de kern zet met `SET_CLOCK` over zijn
@@ -86,7 +89,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::future::{Future, poll_fn};
-use core::pin::pin;
+use core::pin::{Pin, pin};
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use core::task::Poll;
 use core::time::Duration;
@@ -101,16 +104,17 @@ use agentd_hopos::mail::{DispatchQueue, Inbox, LeaseQueue, LinkQueue, Mail, Nap,
 use agentd_hopos::restart;
 use agentd_hopos::sntp::{self, NtpLink, PACKET, Sample};
 use agentd_hopos::{
-    Answer, BootConfig, ClusterParts, Connect, Fatal, Handoff, HttpImages, Hub, Images, Node, Port,
-    Question, Resolve,
+    Answer, BootConfig, ClusterParts, Connect, Fatal, Handoff, HttpImages, Hub, Images, Node, Park,
+    Port, Question, Resolve,
 };
-use applib::appnet::{self, Endpoint, Net, NetError, SystemClient, TcpListener, TcpStream};
+use applib::appnet::{self, Endpoint, Net, NetError, SystemClient, TcpListener};
 use applib::rand::{JITTER_ROUNDS, Rng};
 use applib::rt::Exec;
 use applib::{App, EXEC, log};
 use discovery::Discovery;
-use hop_http::{Ask, Chunk, Streams, TcpConn};
+use hop_http::{Ask, Chunk, Streams, TcpConn, Turn};
 use hopos_runner::KernSys;
+use leanhttp::{Kept, Outcome};
 use sync::mpsc::Mailbox;
 use types::Job;
 
@@ -125,12 +129,25 @@ fn main() {}
 /// Het ritme van de eigenaar-taak: de tik van agent en leader.
 const TICK: Duration = Duration::from_secs(1);
 
-/// De langste stilte op een verbinding: een pool van [`WORKERS`] per poort,
-/// dus een keep-alive-client mag een werker niet lang ophouden. Zijn alle
-/// werkers bezet, dan wacht een nieuwe verbinding niet eens zo lang: de
-/// werker sluit zijn verbinding dan na het antwoord
-/// (`Handoff::none_free`, zie `forward::serve`).
+/// De kap op elke leestermijn van een verbinding (kop en body van een
+/// verzoek): een pool van [`WORKERS`] per poort, dus een trage client mag
+/// een werker niet lang ophouden. Zijn alle werkers bezet, dan sluit de
+/// werker zijn verbinding na het antwoord (`Handoff::none_free`, zie
+/// `forward::serve`).
 const READ_CAP: Duration = Duration::from_secs(2);
+
+/// Hoe lang een keep-alive-verbinding stil in het park mag staan voor de
+/// acceptor haar sluit. Tot 06-11-2026 hield de werker haar zelf vast, met
+/// [`READ_CAP`] als stilte; het park kost geen werker, maar elke verbinding
+/// houdt wel een plek en budget in de netstack van het slot. Dus dezelfde
+/// 2 s als voorheen: wat een client ziet, blijft gelijk.
+const PARK_IDLE: Duration = READ_CAP;
+
+/// Zoveel stille verbindingen houdt het park van één poort; een verbinding
+/// die er niet meer bij past, gaat dicht (de client opent een nieuwe).
+/// Ruim boven wat 2 s stilte bij de clients van één node oplevert, en klein
+/// tegen het budget van de netstack (een verbinding kost minstens 20 KiB).
+const PARK_CAP: usize = 32;
 
 /// Werkers per poort. Een open stroom houdt er een vast; met hoogstens drie
 /// stromen per node (`MAX_STREAMS` in de node) houdt elke poort er minstens
@@ -138,7 +155,7 @@ const READ_CAP: Duration = Duration::from_secs(2);
 const WORKERS: usize = 4;
 
 /// Hoe vaak de acceptor kijkt of er een werker vrij is als ze alle bezig
-/// zijn. Een koud pad (een vierde gelijktijdige verbinding), dus pollen is
+/// zijn. Een koud pad (een vijfde gelijktijdig verzoek), dus pollen is
 /// eenvoudiger dan een bel.
 const BUSY_POLL: Duration = Duration::from_millis(5);
 
@@ -777,29 +794,106 @@ where
     WANTED.store(node.wanted(), Relaxed);
 }
 
-/// De acceptor van één poort: elke verbinding als waarde naar een vrije werker.
+/// De keep-alive-verbindingen die de werkers van één poort teruggeven aan
+/// het park van hun acceptor. Elke werker geeft er hoogstens één per
+/// verzoek; past er geen meer bij, dan sluit de werker haar.
+type Back = Mailbox<Kept<TcpConn>, WORKERS>;
+
+/// De wekker van het park: de future van `Exec::until`, met zijn tijdstip.
+type Alarm = (u64, Pin<Box<dyn Future<Output = ()>>>);
+
+/// De acceptor van één poort, met het park: nieuwe verbindingen en
+/// verbindingen uit het park waar een volgend verzoek binnenkomt, gaan als
+/// waarde naar een vrije werker; stille wachten in het [`Park`] tot
+/// [`PARK_IDLE`].
 ///
 /// De listener is al gebonden vóór de spawn: zodra `HOP_UP` op het log
 /// staat, neemt de stack een SYN aan, ook als deze taak nog geen ronde had.
+///
+/// Eén taak voor de listener, de terugkeer van de werkers en het park, in
+/// één `poll_fn` zoals `applibhttp` in HopOS: een stille verbinding kost
+/// geen taak en geen timer; het park houdt één timer voor de vroegste
+/// stilte, en alleen zolang er iets staat.
 async fn accept(
     listener: TcpListener,
     exec: &'static Exec,
-    pool: &'static Handoff<TcpStream>,
+    pool: &'static Handoff<Turn<TcpConn>>,
+    back: &'static Back,
     number: u16,
 ) {
+    let mut park: Park<TcpConn> = Park::new(PARK_CAP, PARK_IDLE);
+    let mut alarm: Option<Alarm> = None;
+    let mut due: Vec<Turn<TcpConn>> = Vec::new();
+    let mut ready: Vec<Kept<TcpConn>> = Vec::new();
+    let mut gone: Vec<Kept<TcpConn>> = Vec::new();
     loop {
-        let mut stream = match listener.accept().await {
-            Ok(s) => s,
-            Err(e) => {
-                log!("hop: accept on :{number}: {e}");
-                exec.after(Duration::from_millis(100)).await;
-                continue;
+        let mut failed: Option<NetError> = None;
+        poll_fn(|cx| {
+            let mut moved = false;
+            // Terug van de werkers: het park in; vol gaat dicht.
+            while let Poll::Ready(kept) = pin!(back.recv()).poll(cx) {
+                moved = true;
+                if let Err(kept) = park.park(kept, exec.now()) {
+                    gone.push(kept);
+                }
             }
-        };
-        // Alle werkers bezig: kort wachten tot er een vrijkomt.
-        while let Err(back) = pool.give(stream) {
-            stream = back;
-            exec.after(BUSY_POLL).await;
+            // Nieuwe verbindingen.
+            loop {
+                match pin!(listener.accept()).poll(cx) {
+                    Poll::Ready(Ok(s)) => {
+                        moved = true;
+                        due.push(Turn::New(TcpConn::new(s, exec).with_read_cap(READ_CAP)));
+                    }
+                    Poll::Ready(Err(e)) => {
+                        moved = true;
+                        failed = Some(e);
+                        break;
+                    }
+                    Poll::Pending => break,
+                }
+            }
+            // Het park: leesbaar gaat naar een werker, te lang stil dicht.
+            if park.sweep(cx, exec.now(), &mut ready, &mut gone) {
+                moved = true;
+            }
+            due.extend(ready.drain(..).map(Turn::Again));
+            // Eén timer: de vroegste stilte.
+            match park.next_until() {
+                None => alarm = None,
+                Some(at) => {
+                    if alarm.as_ref().is_none_or(|(t, _)| *t != at) {
+                        alarm = Some((at, Box::pin(exec.until(at))));
+                    }
+                    if let Some((_, a)) = alarm.as_mut()
+                        && a.as_mut().poll(cx).is_ready()
+                    {
+                        alarm = None;
+                        moved = true;
+                    }
+                }
+            }
+            if moved {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        for kept in gone.drain(..) {
+            kept.close().await;
+        }
+        // Alle werkers bezig: kort wachten tot er een vrijkomt. Het park en
+        // de listener wachten zolang in de stack.
+        for job in due.drain(..) {
+            let mut job = job;
+            while let Err(back) = pool.give(job) {
+                job = back;
+                exec.after(BUSY_POLL).await;
+            }
+        }
+        if let Some(e) = failed {
+            log!("hop: accept on :{number}: {e}");
+            exec.after(Duration::from_millis(100)).await;
         }
     }
 }
@@ -830,12 +924,19 @@ impl Streams for HubStreams {
     }
 }
 
-/// Eén werker: wacht op een verbinding, leanhttp, elk verzoek als bericht
-/// naar de eigenaar met vak `slot` in de bus. Een doorgifte naar een andere
-/// node (de leader, of een agent als deze node leidt) voert de werker zelf
-/// uit met zijn eigen client (`agentd_hopos::forward`).
+/// Eén werker: wacht op een verbinding, bedient één verzoek met leanhttp
+/// (als bericht naar de eigenaar met vak `slot` in de bus), en geeft een
+/// verbinding die mag blijven terug aan het park van de acceptor. Een
+/// doorgifte naar een andere node (de leader, of een agent als deze node
+/// leidt) voert de werker zelf uit met zijn eigen client
+/// (`agentd_hopos::forward`).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "de vaste naden van een werker, één keer bij de spawn"
+)]
 async fn work(
-    pool: &'static Handoff<TcpStream>,
+    pool: &'static Handoff<Turn<TcpConn>>,
+    back: &'static Back,
     i: usize,
     exec: &'static Exec,
     hub: &'static Hub,
@@ -845,19 +946,38 @@ async fn work(
 ) {
     let mut streams = HubStreams { hub, exec, slot };
     loop {
-        let stream = pool.take(i).await;
-        let conn = TcpConn::new(stream, exec).with_read_cap(READ_CAP);
-        // Een verbinding die eindigt met een termijn of een reset is gewoon
-        // een client die wegging; dat is geen logregel waard.
-        let _ = forward::serve(
-            conn,
-            async |req| hub.ask_routed(slot, port, req).await,
-            &mut streams,
-            &mut client,
-            port,
-            || pool.none_free() || LEAVING.load(Relaxed),
-        )
-        .await;
+        let mut turn = pool.take(i).await;
+        loop {
+            let out = forward::serve(
+                turn,
+                async |req| hub.ask_routed(slot, port, req).await,
+                &mut streams,
+                &mut client,
+                port,
+                || pool.none_free() || LEAVING.load(Relaxed),
+            )
+            .await;
+            match out {
+                // Al gepijplijnd: wachten op leesbaar zou nooit eindigen.
+                Ok(Outcome::Kept(k)) if k.has_buffered() => turn = Turn::Again(k),
+                Ok(Outcome::Kept(k)) => {
+                    if let Err(sync::Full(k)) = back.try_send(k) {
+                        k.close().await;
+                    }
+                    break;
+                }
+                // Geen route neemt de verbinding over; komt er toch een
+                // terug, dan gaat ze hier dicht.
+                Ok(Outcome::Hijacked(h)) => {
+                    let mut conn = h.conn;
+                    let _ = leanhttp::close(&mut conn).await;
+                    break;
+                }
+                // Een verbinding die eindigt met een termijn of een reset is
+                // gewoon een client die wegging; dat is geen logregel waard.
+                Ok(Outcome::Closed) | Err(_) => break,
+            }
+        }
         pool.free(i);
     }
 }
@@ -870,7 +990,7 @@ async fn leave<S, I>(
     node: &mut Node<S, I>,
     app: &'static App,
     exec: &'static Exec,
-    agent_pool: Option<&'static Handoff<TcpStream>>,
+    agent_pool: Option<&'static Handoff<Turn<TcpConn>>>,
     slot: usize,
 ) where
     S: runner::SystemApi + agent::Store,
@@ -1106,7 +1226,7 @@ async fn resident(app: &'static App) {
     ];
     // De pool van de agent-poort: daar komt `POST /restart` binnen, en de
     // eigenaar wacht na een aangenomen herstart op de werker die hem droeg.
-    let mut agent_pool: Option<&'static Handoff<TcpStream>> = None;
+    let mut agent_pool: Option<&'static Handoff<Turn<TcpConn>>> = None;
     for (first_slot, port, number) in ports {
         let l = match net.tcp_listen(number) {
             Ok(l) => l,
@@ -1120,18 +1240,19 @@ async fn resident(app: &'static App) {
                 .await
             }
         };
-        let pool: &'static Handoff<TcpStream> = Box::leak(Box::new(Handoff::new(WORKERS)));
+        let pool: &'static Handoff<Turn<TcpConn>> = Box::leak(Box::new(Handoff::new(WORKERS)));
+        let back: &'static Back = Box::leak(Box::new(Mailbox::new()));
         if port == Port::Agent {
             agent_pool = Some(pool);
         }
-        let mut spawned = exec.spawn(accept(l, exec, pool, number));
+        let mut spawned = exec.spawn(accept(l, exec, pool, back, number));
         for i in 0..WORKERS {
             if spawned.is_err() {
                 break;
             }
             let tag = u8::try_from(16 + first_slot + i).unwrap_or(u8::MAX);
             let client = cluster_client(app, net, exec, tag, STREAM_IDLE);
-            spawned = exec.spawn(work(pool, i, exec, hub, first_slot + i, port, client));
+            spawned = exec.spawn(work(pool, back, i, exec, hub, first_slot + i, port, client));
         }
         if let Err(e) = spawned {
             fail(

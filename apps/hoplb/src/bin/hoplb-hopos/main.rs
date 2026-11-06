@@ -21,9 +21,10 @@
 //!
 //! | Taak | Bezit |
 //! | --- | --- |
-//! | acceptor per poort | de listener; geeft elke verbinding als waarde aan een vrije werker |
+//! | acceptor verkeer | de listener; geeft elke verbinding als waarde aan een vrije werker |
 //! | verkeer ×[`slot::WORKERS`] | zijn verbinding; leest de routetabel kort (geen lening over een `.await`) |
-//! | admin ×[`slot::ADMIN_WORKERS`] | zijn verbinding; vraagt de metrics-taak om de tekst |
+//! | acceptor admin (`applibhttp`) | de listener en het park van stille keep-alive-verbindingen |
+//! | admin ×[`slot::ADMIN_WORKERS`] (`applibhttp`) | één verzoek; vraagt de metrics-taak om de tekst |
 //! | metrics | de [`hoplb::Metrics`]: metingen en vragen komen over één brievenbus |
 //! | stroom | de SSE-verbinding (hoplib), geeft gebeurtenissen aan de watcher |
 //! | watcher | de cache van het cluster en de wacht; schrijft de routetabel |

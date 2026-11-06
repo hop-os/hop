@@ -12,15 +12,17 @@ use applib::appnet::{self, TcpListener, TcpStream};
 use applib::rt::Exec;
 use applib::tcp::TcpConn;
 use applib::{App, EXEC, clock, log};
+use applibhttp::Ctx;
+use hoplb::admin::Page;
 use hoplb::proxy::{self, Env};
 use hoplb::watch::{Pending, RETRY, Sync};
 use hoplb::{Error, Metrics, Pick, Record, RouteTable, Watcher};
 use hoplib::hopos::Agent;
 use hoplib::{Client, Event};
-use leanhttp::IoError;
+use leanhttp::{Exchange, IoError, Mux};
 use sync::mpsc::Mailbox;
 use sync::spsc::{Channel, Receiver, Sender};
-use sync::{Either, Local, LocalCell, select};
+use sync::{Either, Local, LocalCell, Oneshot, select};
 
 use crate::config;
 
@@ -32,15 +34,17 @@ pub(crate) const WORKERS: usize = 8;
 /// Admin-werkers: Prometheus en een health-check.
 pub(crate) const ADMIN_WORKERS: usize = 2;
 
+/// Zoveel stille keep-alive-verbindingen houdt het park van de admin-poort
+/// (een paar Prometheus-servers die hun verbinding tussen twee scrapes
+/// openhouden); daarboven gaat een verbinding na haar antwoord dicht.
+const ADMIN_PARKED: usize = 8;
+
 /// Metingen in het venster per reeks. De host houdt er 10.000; hier is de
 /// heap een deel van de partitie, en 1.000 geeft dezelfde vier kwantielen.
 const MAX_SAMPLES: usize = 1_000;
 
 /// Reeksen (domein, backend) op zijn hoogst.
 const MAX_SERIES: usize = 128;
-
-/// De stilte op een admin-verbinding (welcome: `READ_CAP`).
-const ADMIN_READ_CAP: Duration = Duration::from_secs(5);
 
 /// Hoe lang het bellen van een backend mag duren.
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
@@ -62,16 +66,30 @@ const LOG_EVERY: u64 = 100;
 enum MetricsMsg {
     /// Eén afgehandeld verzoek.
     Record(Record),
-    /// Admin-werker `i` wil de Prometheus-tekst.
+    /// Admin-werker `i` wil de Prometheus-tekst (antwoord in [`SCRAPES`]).
     Scrape(usize),
 }
 
 /// De brievenbus van de metrics-taak: elke werker schrijft, alleen zij leest.
 static METRICS: Mailbox<MetricsMsg, 256> = Mailbox::new();
 
-/// De antwoorden van de metrics-taak, één rij per admin-werker.
-static SCRAPES: Local<[Channel<String, 1>; ADMIN_WORKERS]> =
-    Local::new([const { Channel::new() }; ADMIN_WORKERS]);
+/// De antwoorden van de metrics-taak, één plek per admin-werker
+/// (`Ctx::worker` van `applibhttp`).
+static SCRAPES: [Oneshot<String>; ADMIN_WORKERS] = [const { Oneshot::new() }; ADMIN_WORKERS];
+
+/// De kap op elke leestermijn van een admin-verzoek (kop en body), zoals
+/// welcome. Tot 06-11-2026 ook de stilte tussen twee verzoeken; die is nu
+/// van het park ([`ADMIN_IDLE`]).
+const ADMIN_READ_CAP: Duration = Duration::from_secs(5);
+
+/// Hoe lang een keep-alive-verbinding stil in het park van de admin-poort
+/// mag staan: dezelfde 5 s als toen de werker haar zelf vasthield.
+const ADMIN_IDLE: Duration = Duration::from_secs(5);
+
+/// De server van de admin-poort: acceptor, park en werkers (`applibhttp`).
+static ADMIN: applibhttp::Http<ADMIN_WORKERS, ADMIN_PARKED> = applibhttp::Http::new()
+    .with_read_cap(ADMIN_READ_CAP)
+    .with_idle(ADMIN_IDLE);
 
 /// De geldende routetabel. De watcher vervangt hem in één keer; een werker
 /// leent hem voor één `pick` en nooit over een `.await` (handboek §1.1).
@@ -85,10 +103,6 @@ static TRAFFIC_Q: Local<[Channel<TcpStream, 1>; WORKERS]> =
     Local::new([const { Channel::new() }; WORKERS]);
 static TRAFFIC_BUSY: Local<[Cell<bool>; WORKERS]> =
     Local::new([const { Cell::new(false) }; WORKERS]);
-static ADMIN_Q: Local<[Channel<TcpStream, 1>; ADMIN_WORKERS]> =
-    Local::new([const { Channel::new() }; ADMIN_WORKERS]);
-static ADMIN_BUSY: Local<[Cell<bool>; ADMIN_WORKERS]> =
-    Local::new([const { Cell::new(false) }; ADMIN_WORKERS]);
 
 /// Verzoeken sinds de start.
 static REQUESTS: AtomicU64 = AtomicU64::new(0);
@@ -119,25 +133,9 @@ pub(crate) async fn hoplb(app: &'static App) {
     let traffic = TcpListener::bind(http).expect("hoplb: listen on ER_PORT_HTTP");
     let admin_l = TcpListener::bind(admin).expect("hoplb: listen on ER_PORT_ADMIN");
 
-    // De metrics-taak bezit de zenders van de antwoordrijen, elke
-    // admin-werker zijn ontvanger.
-    let mut replies: Vec<Sender<'static, String, 1>> = Vec::new();
-    replies
-        .try_reserve_exact(ADMIN_WORKERS)
-        .expect("hoplb: reply table");
-    let mut admin_tx: Vec<Sender<'static, TcpStream, 1>> = Vec::new();
-    admin_tx
-        .try_reserve_exact(ADMIN_WORKERS)
-        .expect("hoplb: admin table");
-    for (i, (q, r)) in ADMIN_Q.get().iter().zip(SCRAPES.get().iter()).enumerate() {
-        let (tx, rx) = q.split().expect("hoplb: admin queue split once");
-        let (rtx, rrx) = r.split().expect("hoplb: reply queue split once");
-        admin_tx.push(tx);
-        replies.push(rtx);
-        exec.spawn(admin_worker(i, rx, rrx, exec))
-            .expect("hoplb: spawn admin worker");
-    }
-    exec.spawn(metrics(replies)).expect("hoplb: spawn metrics");
+    let admin_mux: &'static Mux<Page> =
+        Box::leak(Box::new(hoplb::admin::mux().expect("hoplb: admin routes")));
+    exec.spawn(metrics()).expect("hoplb: spawn metrics");
 
     let mut traffic_tx: Vec<Sender<'static, TcpStream, 1>> = Vec::new();
     traffic_tx
@@ -156,8 +154,8 @@ pub(crate) async fn hoplb(app: &'static App) {
         .expect("hoplb: spawn stream");
     exec.spawn(watch(agent_ref, watcher, ev_rx, exec))
         .expect("hoplb: spawn watcher");
-    exec.spawn(accept(admin_l, admin_tx, ADMIN_BUSY.get(), exec))
-        .expect("hoplb: spawn admin acceptor");
+    exec.spawn(admin_server(admin_l, admin_mux, exec))
+        .expect("hoplb: spawn admin server");
 
     let [a, b, c, d] = net.ip();
     log!(
@@ -372,40 +370,36 @@ fn fmt_ip(ip: [u8; 4], buf: &mut [u8; 15]) -> &str {
     core::str::from_utf8(buf.get(..n).unwrap_or_default()).unwrap_or("")
 }
 
-/// Eén admin-werker.
-async fn admin_worker(
-    i: usize,
-    mut rx: Receiver<'static, TcpStream, 1>,
-    mut replies: Receiver<'static, String, 1>,
-    exec: &'static Exec,
-) {
-    loop {
-        let stream = rx.recv().await;
-        let conn = TcpConn::new(stream, exec).with_read_cap(ADMIN_READ_CAP);
-        let _ = hoplb::admin::serve(conn, async || scrape(i, &mut replies, exec).await).await;
-        if let Some(b) = ADMIN_BUSY.get().get(i) {
-            b.set(false);
-        }
-    }
+/// De admin-poort: de acceptor van `applibhttp`, met [`ADMIN_WORKERS`]
+/// werkers. Een Prometheus die zijn verbinding tussen twee scrapes
+/// openhoudt, wacht in het park, niet bij een werker.
+async fn admin_server(listener: TcpListener, mux: &'static Mux<Page>, exec: &'static Exec) {
+    let handler: &'static _ = Box::leak(Box::new(
+        async |ex: &mut Exchange<'_, TcpConn>, ctx: &Ctx| {
+            hoplb::admin::handle(ex, mux, async || scrape(ctx.worker, exec).await).await
+        },
+    ));
+    // Keert alleen terug als er geen werker te spawnen was.
+    ADMIN.run_with(exec, listener, handler).await;
+    log!(
+        "hoplb: no admin worker could be spawned, /health and /metrics are down HOPOS_HOPLB_ADMIN_FAIL"
+    );
 }
 
 /// Vraagt de metrics-taak om de tekst en wacht op het antwoord.
-async fn scrape(
-    i: usize,
-    replies: &mut Receiver<'static, String, 1>,
-    exec: &'static Exec,
-) -> Option<String> {
+async fn scrape(i: usize, exec: &'static Exec) -> Option<String> {
+    let reply = SCRAPES.get(i)?;
     // Een oud antwoord (een vraag die eerder te laat was) eerst weg.
-    while replies.try_recv().is_some() {}
+    let _ = reply.try_take();
     METRICS.try_send(MetricsMsg::Scrape(i)).ok()?;
-    match select(replies.recv(), exec.after(SCRAPE_TIMEOUT)).await {
+    match select(reply.recv(), exec.after(SCRAPE_TIMEOUT)).await {
         Either::Left(text) => Some(text),
         Either::Right(()) => None,
     }
 }
 
 /// De metrics-taak: bezit de [`Metrics`], leest de brievenbus.
-async fn metrics(mut replies: Vec<Sender<'static, String, 1>>) {
+async fn metrics() {
     let mut m = Metrics::with_limits(MAX_SAMPLES, MAX_SERIES);
     let mut folded = 0;
     loop {
@@ -426,10 +420,11 @@ async fn metrics(mut replies: Vec<Sender<'static, String, 1>>) {
             MetricsMsg::Scrape(i) => {
                 let mut out = String::new();
                 if m.render(&mut out).is_ok()
-                    && let Some(tx) = replies.get_mut(i)
+                    && let Some(reply) = SCRAPES.get(i)
                 {
-                    // Vol betekent: de vorige vraag is nog niet opgehaald.
-                    let _ = tx.try_send(out);
+                    // Een antwoord dat nog lag (de vorige vraag gaf het op),
+                    // maakt plaats voor dit verse.
+                    reply.put(out);
                 }
             }
         }

@@ -50,8 +50,9 @@ default = ["std"]
 # De host-vorm: std-sockets en bestanden (hostnet voor de verbinding en de
 # executor van één thread, zoals agentd).
 std = ["dep:hostnet"]
-# De bewoner op HopOS: applib (met de leanhttp-brug) en de bouwstenen van sync.
-hopos = ["dep:applib", "dep:sync"]
+# De bewoner op HopOS: applib (met de leanhttp-brug), de server van HopOS
+# (applibhttp) en de bouwstenen van sync.
+hopos = ["dep:applib", "dep:applibhttp", "dep:sync"]
 
 [dependencies]
 # HTTP/1.1 zonder TLS, over een Read + Write-trait: dezelfde tag als Hop en
@@ -62,6 +63,9 @@ leanhttp = { workspace = true }
 auth = { workspace = true }
 hostnet = { workspace = true, optional = true }
 applib = { workspace = true, features = ["http"], optional = true }
+# Een acceptor met een park voor stille keep-alive-verbindingen en een
+# vaste pool werkers rond leanhttp::serve.
+applibhttp = { workspace = true, optional = true }
 sync = { workspace = true, optional = true }
 
 [dev-dependencies]

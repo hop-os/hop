@@ -39,7 +39,7 @@ bench = false
 # `--no-default-features --features hopos` voor aarch64-unknown-none-softfloat.
 default = ["std"]
 std = ["dep:hostnet", "hoplib/std"]
-hopos = ["dep:applib", "dep:sync", "hoplib/hopos"]
+hopos = ["dep:applib", "dep:applibhttp", "dep:sync", "hoplib/hopos"]
 
 [dependencies]
 # HTTP/1.1 (PORT.md §2.1): de traits waar de proxy over loopt, en de server
@@ -53,6 +53,9 @@ hoplib = { workspace = true }
 hostnet = { workspace = true, optional = true }
 # De app-runtime van HopOS: executor, netstack, `TcpConn`-brug voor leanhttp.
 applib = { workspace = true, features = ["http"], optional = true }
+# De admin-poort van de bewoner: een acceptor met een park voor stille
+# keep-alive-verbindingen en een vaste pool werkers rond leanhttp::serve.
+applibhttp = { workspace = true, optional = true }
 sync = { workspace = true, optional = true }
 
 [lints]

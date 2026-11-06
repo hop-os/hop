@@ -13,6 +13,8 @@ config = { path = "../config" }
 auth = { path = "../auth" }
 leader = { path = "../leader" }
 agent = { path = "../agent" }
+# Alleen de routetabel (`leanhttp::Mux`); de HTTP-laag zelf blijft buiten deze crate.
+leanhttp = { workspace = true }
 
 [lints]
 workspace = true

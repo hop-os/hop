@@ -13,9 +13,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use api::{Effect, LogStream, Method, Request, Response};
-use leanhttp::{AsyncRead, AsyncWrite, Close, IoError};
+use leanhttp::{AsyncRead, AsyncWrite, Close, IoError, Outcome};
 
-use crate::{Ask, Chunk, Reply, Streams, refuse, serve};
+use crate::{Ask, Chunk, Reply, Streams, Turn, refuse, serve};
 
 pub(crate) struct Mem {
     input: Vec<u8>,
@@ -135,7 +135,7 @@ fn exchange_held(
 fn exchange_conn(
     raw: &[u8],
     hold: bool,
-    handler: impl AsyncFnMut(Request) -> Reply,
+    mut handler: impl AsyncFnMut(Request) -> Reply,
     streams: &mut Fake,
 ) -> String {
     let out = Rc::new(RefCell::new(Vec::new()));
@@ -146,7 +146,15 @@ fn exchange_conn(
         hold,
         probing: false,
     };
-    block_on(serve(conn, handler, streams)).unwrap();
+    // Verzoek na verzoek, zoals een werker en het park van de acceptor: een
+    // verbinding die mag blijven, komt terug als `Kept` voor de volgende beurt.
+    let mut turn = Some(Turn::New(conn));
+    while let Some(t) = turn.take() {
+        turn = match block_on(serve(t, &mut handler, streams)).unwrap() {
+            Outcome::Kept(k) => Some(Turn::Again(k)),
+            Outcome::Closed | Outcome::Hijacked(_) => None,
+        };
+    }
     String::from_utf8(out.borrow().clone()).unwrap()
 }
 
