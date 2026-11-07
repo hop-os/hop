@@ -17,20 +17,23 @@
 //! park). Op de agent-poort van Hop kijkt de canary van HopOS mee: antwoordt
 //! die niet, dan reset de node.
 //!
-//! Dezelfde vorm als het park van `applibhttp` in HopOS. Hop gebruikt die
-//! crate niet: elke werker heeft hier zijn eigen vak in de [`crate::Hub`],
-//! zijn eigen client voor de doorgiftes en zijn eigen stroom, en de
-//! eigenaar wacht na een herstart op de werker die het verzoek droeg
-//! ([`crate::Handoff::freed`]); de handler van `applibhttp` is één gedeelde
-//! functie zonder werkernummer.
+//! Dezelfde vorm als het park van `applibhttp` in HopOS, maar Hop houdt
+//! zijn eigen (N1, 07-11): de eigenaar wacht na een herstart op de werker
+//! die het antwoord droeg ([`crate::Handoff::freed`]), en een werker sluit
+//! zijn verbinding na het antwoord als geen andere vrij is
+//! ([`crate::Handoff::none_free`]). De deuren van `applibhttp` kennen geen
+//! van beide.
 
 use alloc::vec::Vec;
-use core::future::Future;
+use core::future::{Future, poll_fn};
 use core::pin::pin;
-use core::task::Context;
+use core::task::{Context, Poll};
 use core::time::Duration;
 
 use leanhttp::Kept;
+use sync::mpsc::Mailbox;
+
+use crate::Handoff;
 
 /// Een verbinding waarop het park kan wachten zonder iets te verbruiken.
 pub trait Readable {
@@ -101,6 +104,47 @@ impl<C: leanhttp::Conn + Readable> Park<C> {
         Ok(())
     }
 
+    /// Zet wat de werkers teruggaven (`back`) neer op `now`; wat er niet
+    /// bij past, gaat naar `gone`. Op `back` wacht nu de waker van `cx`.
+    /// Zegt of er iets kwam.
+    pub fn take_back<const N: usize>(
+        &mut self,
+        cx: &mut Context<'_>,
+        back: &Mailbox<Kept<C>, N>,
+        now: u64,
+        gone: &mut Vec<Kept<C>>,
+    ) -> bool {
+        let mut came = false;
+        while let Poll::Ready(kept) = pin!(back.recv()).poll(cx) {
+            came = true;
+            if let Err(kept) = self.park(kept, now) {
+                gone.push(kept);
+            }
+        }
+        came
+    }
+
+    /// Geeft `job` aan een vrije werker van `pool`. Zijn ze alle bezig, dan
+    /// wacht dit op de bel van [`Handoff::free`], en zet intussen wat de
+    /// werkers teruggeven hier neer ([`Park::take_back`]): anders loopt
+    /// `back` vol en sluit een werker een goede verbinding (zoals
+    /// `applibhttp` in HopOS sinds rc4).
+    pub async fn place<T, const N: usize>(
+        &mut self,
+        pool: &Handoff<T>,
+        back: &Mailbox<Kept<C>, N>,
+        job: T,
+        now: impl Fn() -> u64,
+        gone: &mut Vec<Kept<C>>,
+    ) {
+        let mut placing = pin!(pool.place(job));
+        poll_fn(|cx| {
+            self.take_back(cx, back, now(), gone);
+            placing.as_mut().poll(cx)
+        })
+        .await;
+    }
+
     /// Eén ronde door het park op `now`: wat leesbaar werd naar `ready`
     /// (voor een werker), wat te lang stil was naar `gone` (om te sluiten).
     /// Op elke verbinding die blijft staan, wacht nu de waker van `cx`.
@@ -159,8 +203,11 @@ mod tests {
     use alloc::rc::Rc;
     use core::cell::Cell;
     use core::future::poll_fn;
-    use core::task::{Poll, Waker};
+    use core::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    use core::task::Waker;
     use leanhttp::{AsyncRead, AsyncWrite, Close, Exchange, IoError, Outcome};
+    use std::sync::Arc;
+    use std::task::Wake;
 
     /// Een verbinding in het geheugen met een schakelaar voor "leesbaar".
     struct Wire {
@@ -267,6 +314,48 @@ mod tests {
         assert!(moved);
         assert_eq!((ready.len(), gone.len(), park.len()), (0, 1, 1));
         assert_eq!(park.next_until(), Some(3 * s));
+    }
+
+    /// Wekt en telt.
+    struct Count(AtomicUsize);
+
+    impl Wake for Count {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, SeqCst);
+        }
+    }
+
+    #[test]
+    fn a_full_pool_waits_on_its_bell_and_parks_what_comes_back() {
+        // Eén werker, bezig, en plek voor één verbinding in `back`.
+        let pool: Handoff<u8> = Handoff::new(1);
+        let back: Mailbox<Kept<Wire>, 1> = Mailbox::new();
+        let mut park = Park::new(4, Duration::from_secs(2));
+        let mut gone = Vec::new();
+        assert_eq!(pool.give(1), Ok(0));
+        let count = Arc::new(Count(AtomicUsize::new(0)));
+        let waker = Waker::from(count.clone());
+        let mut cx = Context::from_waker(&waker);
+        let woken = || count.0.load(SeqCst);
+        {
+            let mut placing = pin!(park.place(&pool, &back, 2, || 0, &mut gone));
+            assert!(placing.as_mut().poll(&mut cx).is_pending());
+            // Twee keep-alives terug terwijl de acceptor wacht: de rij van
+            // één loopt niet vol, dus geen werker sluit een goede verbinding.
+            for _ in 0..2 {
+                let before = woken();
+                assert!(back.try_send(kept().0).is_ok(), "back is emptied");
+                assert!(woken() > before, "back rings the acceptor");
+                assert!(placing.as_mut().poll(&mut cx).is_pending());
+            }
+            // De werker komt vrij: de bel, geen klok.
+            let before = woken();
+            pool.free(0);
+            assert!(woken() > before, "free rings the acceptor");
+            assert!(placing.as_mut().poll(&mut cx).is_ready());
+        }
+        assert_eq!((park.len(), gone.len()), (2, 0));
+        assert!(pool.none_free(), "the job is with the worker");
     }
 
     #[test]

@@ -154,11 +154,6 @@ const PARK_CAP: usize = 32;
 /// één vrij voor de CLI en de GUI.
 const WORKERS: usize = 4;
 
-/// Hoe vaak de acceptor kijkt of er een werker vrij is als ze alle bezig
-/// zijn. Een koud pad (een vijfde gelijktijdig verzoek), dus pollen is
-/// eenvoudiger dan een bel.
-const BUSY_POLL: Duration = Duration::from_millis(5);
-
 /// Hoe lang een verbinding naar een artifact-server mag duren.
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -831,11 +826,8 @@ async fn accept(
         poll_fn(|cx| {
             let mut moved = false;
             // Terug van de werkers: het park in; vol gaat dicht.
-            while let Poll::Ready(kept) = pin!(back.recv()).poll(cx) {
+            if park.take_back(cx, back, exec.now(), &mut gone) {
                 moved = true;
-                if let Err(kept) = park.park(kept, exec.now()) {
-                    gone.push(kept);
-                }
             }
             // Nieuwe verbindingen.
             loop {
@@ -882,14 +874,11 @@ async fn accept(
         for kept in gone.drain(..) {
             kept.close().await;
         }
-        // Alle werkers bezig: kort wachten tot er een vrijkomt. Het park en
-        // de listener wachten zolang in de stack.
+        // Alle werkers bezig: wachten op de eerste die vrijkomt (een bel).
+        // Het park en de listener wachten zolang in de stack; wat werkers
+        // intussen teruggeven, gaat meteen het park in.
         for job in due.drain(..) {
-            let mut job = job;
-            while let Err(back) = pool.give(job) {
-                job = back;
-                exec.after(BUSY_POLL).await;
-            }
+            park.place(pool, back, job, || exec.now(), &mut gone).await;
         }
         if let Some(e) = failed {
             log!("hop: accept on :{number}: {e}");

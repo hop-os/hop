@@ -300,17 +300,17 @@ fn placed_for_a_flip(flip_ok: bool) -> (TestNode, FakeKern) {
 
 /// Alleen warm (Derek, 01-11): de taken draaien door, ja of nee. Een
 /// weigering van de kern is een 502 aan de aanroeper, het bundelslot is
-/// opgeruimd en er stopt niets; een koude vraag is een 400.
+/// opgeruimd en er stopt niets. (De body zelf toetst `api`.)
 #[test]
 fn a_flip_is_warm_and_a_refusal_is_a_no() {
-    let flip = |n: &mut TestNode, extra: &str| {
+    let flip = |n: &mut TestNode| {
         let sum = "ab".repeat(32);
-        let body = format!(r#"{{"url":"http://images/k.flip","sha256":"{sum}"{extra}}}"#);
+        let body = format!(r#"{{"url":"http://images/k.flip","sha256":"{sum}"}}"#);
         http(n, Port::Agent, wire("POST", "/flip", &body))
     };
     for ok in [true, false] {
         let (mut n, k) = placed_for_a_flip(ok);
-        let (status, body) = flip(&mut n, "");
+        let (status, body) = flip(&mut n);
         let lines = n.take_lines();
         if ok {
             assert_eq!(status, 202, "{body}");
@@ -341,9 +341,6 @@ fn a_flip_is_warm_and_a_refusal_is_a_no() {
         );
         placed_matches_the_agent(&mut n);
     }
-    let (mut n, _k) = placed_for_a_flip(true);
-    let (status, body) = flip(&mut n, r#","cold":true"#);
-    assert_eq!(status, 400, "{body}");
 }
 
 /// Wat de leader geplaatst telt en wat de agent heeft, moet hetzelfde zijn.

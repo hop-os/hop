@@ -3,7 +3,9 @@
 //! Een listener van de stack heeft één wachtplek voor een waker, dus één
 //! taak accepteert per poort; de verbindingen gaan als waarde naar een vaste
 //! pool werkers (handboek §2: geen taak per verbinding, de pool is een
-//! constante). Dezelfde vorm als `apps/welcome` in HopOS.
+//! constante). Dezelfde vorm als `sync::Doors` in HopOS, met twee dingen
+//! die Hop nodig heeft en `Doors` niet kent: [`Handoff::freed`] (de eigenaar
+//! wacht na een herstart op één bepaalde werker) en [`Handoff::none_free`].
 //!
 //! Waarom een pool en niet één taak per poort: een open stroom (`hop
 //! events`, `hop logs --follow`) houdt zijn werker vast zolang hij loopt, en
@@ -18,6 +20,8 @@ use core::cell::RefCell;
 use core::future::poll_fn;
 use core::task::{Poll, Waker};
 
+use sync::Signal;
+
 /// De tabel van één pool.
 pub struct Handoff<T> {
     /// Wat klaarligt voor elke werker.
@@ -28,6 +32,9 @@ pub struct Handoff<T> {
     /// Wie wacht tot een werker vrij is ([`Handoff::freed`]): de eigenaar
     /// die na een herstart van Hop wil weten of zijn antwoord de deur uit is.
     idle: RefCell<Option<Waker>>,
+    /// De bel van de acceptor: gaat bij elke [`Handoff::free`], voor
+    /// [`Handoff::place`].
+    bell: Signal,
 }
 
 impl<T> Handoff<T> {
@@ -44,6 +51,7 @@ impl<T> Handoff<T> {
             busy: RefCell::new(busy),
             wakers: RefCell::new(wakers),
             idle: RefCell::new(None),
+            bell: Signal::new(),
         }
     }
 
@@ -65,6 +73,16 @@ impl<T> Handoff<T> {
             w.wake();
         }
         Ok(i)
+    }
+
+    /// Geeft `t` aan een vrije werker; zijn ze alle bezig, dan wacht dit op
+    /// de bel van de eerste die vrijkomt, niet op de klok (zoals
+    /// `sync::Doors::place` in HopOS).
+    pub async fn place(&self, mut t: T) {
+        while let Err(back) = self.give(t) {
+            t = back;
+            self.bell.wait().await;
+        }
     }
 
     /// Wacht als werker `i` op zijn volgende verbinding.
@@ -89,6 +107,7 @@ impl<T> Handoff<T> {
         if let Some(b) = self.busy.borrow_mut().get_mut(i) {
             *b = false;
         }
+        self.bell.set();
         let w = self.idle.borrow_mut().take();
         if let Some(w) = w {
             w.wake();

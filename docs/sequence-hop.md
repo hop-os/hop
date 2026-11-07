@@ -218,20 +218,18 @@ Wat opvalt in deze volgorde:
 3. **Elke `LEADER_TICK` (10 s), als hij leidt:** de takenlijsten van de
    agents op andere nodes opnieuw vragen, dan `leader.tick` (dode agents,
    settle, om de derde tik de vangnet-reconcile).
-4. **Een koude flip die niet sprong:** na `COLD_FLIP_WAIT` `cold_flip_back`
-   (§7.2).
-5. **`agent.tick`**: de monitor (een `Poll` per draaiende taak, om de 5 s) en
+4. **`agent.tick`**: de monitor (een `Poll` per draaiende taak, om de 5 s) en
    de herstarts die aan de beurt zijn, dan `run_actions`.
-6. **`drain`**: de acties die daaruit volgen, hoogstens 16 rondes
+5. **`drain`**: de acties die daaruit volgen, hoogstens 16 rondes
    (`ACTION_ROUNDS`) [S13].
-7. **`pump_logs`**: per gearmde kooi `NEXT_LOG` tot er niets meer is.
-8. **`pump_kern_logs`**: hoogstens 256 regels van slot 0; na een weigering
+6. **`pump_logs`**: per gearmde kooi `NEXT_LOG` tot er niets meer is.
+7. **`pump_kern_logs`**: hoogstens 256 regels van slot 0; na een weigering
    pas na 60 s opnieuw [S5].
-9. **`cluster_tick`**: `join` (zolang de klok er niet is), `elector.tick`
+8. **`cluster_tick`**: `join` (zolang de klok er niet is), `elector.tick`
    (de renew op een derde van de lease), elke 10 s `election.tick`, en de
    snapshot van de leader naar de staat-taak.
-10. `collect_events`, dan **`keep_state`**: de staat bij de kern als hij
-    veranderde of als `STATE_REFRESH` (10 s) verstreek [S4].
+9. `collect_events`, dan **`keep_state`**: de staat bij de kern als hij
+   veranderde of als `STATE_REFRESH` (10 s) verstreek [S4].
 
 De volgorde binnen de tik: *geen reden gedocumenteerd*, behalve voor de
 laatste stap ("na elke tik waarin hij veranderde: de tik is de debounce").
@@ -500,8 +498,8 @@ De kern-kant is deel 1 §10. Hier de kant van Hop (`agentd-hopos/src/flip.rs`,
 
 1. **`POST /flip`** (`api/src/node.rs`):
    - de URL moet absoluut zijn en de som 64 hex-tekens;
-   - `cold` moet een bool zijn. Iets anders is een 400, "geen stille warme
-     flip".
+   - geen ander veld dan `url` en `sha256`: een ander (zoals het oude
+     `cold`) is een 400, geen stille warme flip (F4, 07-11).
 2. **`Node::flip`**: `HOP_FLIP`, dan `flip::fetch`: een rauw slot
    (`FLIP_BUNDLE_JOB`) en de download, in de eigenaar [F4].
 3. **`flip::ask`**: `PrivOp::Flip` met het slot en de som, met een
@@ -516,32 +514,9 @@ De kern-kant is deel 1 §10. Hier de kant van Hop (`agentd-hopos/src/flip.rs`,
 
 ### 7.2 Koud
 
-1. **`cold_refusal`**: het board-contract uit `HOPOS_COLD_FLIP`.
-   - `no` (geen PSCI, de M4) is een 502 zonder download.
-   - `fresh` (de Pi 5) is een 502 als er sinds de start iets op een app-core
-     draaide.
-   - **Waarom:** "Wat Hop al weet, vraagt hij niet". De kern weigert pas ná
-     de stops die Hop hieronder doet.
-2. **`flip::fetch`.**
-   - **Verplicht:** de download vóór de stops. "Een URL die niet werkt, laat
-     alles draaien."
-3. **`agent.hold_for_flip`**: een Stop per taak, maar het record blijft
-   `Stopping` met zijn reservering, zodat de telling van de leader klopt als
-   de kern toch niet springt (2180acc, 03-10). Dan `drain`: elke stop is een
-   `STOP_SLOT` van hoogstens 3 s, in de eigenaar. `HOP_FLIP_COLD_STOP`.
-4. **`flip::ask(cold)`.**
-   - Een weigering: `cold_flip_back`.
-   - Aangenomen: `cold_flip_until` = nu + `COLD_FLIP_WAIT` (30 s).
-5. **De tik:** leeft deze Hop na 30 s nog, dan "sprong de kern niet":
-   `cold_flip_back` (`HOP_FLIP_COLD_BACK`), en de vastgehouden taken
-   herstarten. **Waarom:** de Pi 5 nam op 03-10 een koude flip aan en sprong
-   niet.
-   - Staat Hop op een app-core, dan stopt de kern hem zelf vóór de sprong
-     (`stop_residents`, §8.1). De detector werkt dus alleen voor een Hop op
-     de OS-core.
-
-Deel 1 §13.7 stelt voor dat er na de 202 geen weg terug is: óf de sprong, óf
-`fatal`. Dan valt deze tak aan Hop-kant weg [S10].
+Er is geen koude flip (deel 1 §13.7, en F4 van 07-11): na de 202 springt
+de kern of valt hij, en Hop wacht niet op een detector. `cold_refusal`,
+`COLD_FLIP_WAIT` en `cold_flip_back` zijn weg [S10].
 
 ### 7.3 Na de warme sprong: het gat
 

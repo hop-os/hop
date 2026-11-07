@@ -224,8 +224,9 @@ impl NodeApi {
     /// alles. Het antwoord is een 202 en niet de uitkomst: een geslaagde flip
     /// keert per definitie nooit terug.
     ///
-    /// Alleen warm (Derek, 01-11): een body met `cold` is een 400, geen
-    /// stille warme flip.
+    /// Er is alleen een warme flip (F4, 07-11): de body is `url` en
+    /// `sha256`, en een ander veld is een 400. Zo wordt een verzoek dat iets
+    /// anders vraagt (het oude `cold`) geen stille warme flip.
     fn flip(&self, req: &Request) -> (Response, Effect) {
         let none = |r| (r, Effect::None);
         if req.method != Method::Post {
@@ -256,11 +257,10 @@ impl NodeApi {
         if sum.len() != 64 || !sum.bytes().all(|c| c.is_ascii_hexdigit()) {
             return none(Response::error(400, "sha256 must be 64 hex characters"));
         }
-        if v.as_object().is_some_and(|o| o.get("cold").is_some()) {
-            return none(Response::error(
-                400,
-                "there is no cold flip; a flip is warm",
-            ));
+        if v.as_object()
+            .is_some_and(|o| o.iter().any(|(k, _)| !matches!(k, "url" | "sha256")))
+        {
+            return none(Response::error(400, "a flip takes only url and sha256"));
         }
         let effect = Effect::Flip {
             url: String::from(url),
@@ -527,7 +527,7 @@ fn logs(rest: &str) -> (Response, Effect) {
 
 #[cfg(test)]
 mod flip_tests {
-    //! `POST /flip`: alleen warm; en de routetabel.
+    //! `POST /flip`: `url` en `sha256`, geen ander veld; en de routetabel.
     use super::*;
     use crate::Method;
 
@@ -544,7 +544,7 @@ mod flip_tests {
     }
 
     #[test]
-    fn a_flip_is_warm_and_cold_is_refused() {
+    fn a_flip_is_url_and_sum_and_any_other_field_is_refused() {
         let mut a = api_agent();
         let on = NodeApi::new(b"", true);
         let sum = "b".repeat(64);
