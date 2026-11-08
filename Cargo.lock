@@ -4,8 +4,8 @@ version = 4
 
 [[package]]
 name = "abi"
-version = "3.2.0-rc9"
-source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0-rc9#7d8d2dccd6f46c717a13c5b60a925ec1a14a6d04"
+version = "3.2.0"
+source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0#8dc79d43feae6d652620b6e32abcfc05906d1ead"
 dependencies = [
  "bounded",
  "dev",
@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "agent"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "config",
  "types",
@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "agentd"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "agent",
  "api",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "agentd-hopos"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "abi",
  "agent",
@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "api"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "agent",
  "auth",
@@ -75,8 +75,8 @@ dependencies = [
 
 [[package]]
 name = "applib"
-version = "3.2.0-rc9"
-source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0-rc9#7d8d2dccd6f46c717a13c5b60a925ec1a14a6d04"
+version = "3.2.0"
+source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0#8dc79d43feae6d652620b6e32abcfc05906d1ead"
 dependencies = [
  "abi",
  "bounded",
@@ -91,8 +91,8 @@ dependencies = [
 
 [[package]]
 name = "applibhttp"
-version = "3.2.0-rc9"
-source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0-rc9#7d8d2dccd6f46c717a13c5b60a925ec1a14a6d04"
+version = "3.2.0"
+source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0#8dc79d43feae6d652620b6e32abcfc05906d1ead"
 dependencies = [
  "applib",
  "leanhttp",
@@ -101,16 +101,16 @@ dependencies = [
 
 [[package]]
 name = "auth"
-version = "3.2.0-rc9"
+version = "3.2.0"
 
 [[package]]
 name = "bounded"
-version = "3.2.0-rc9"
-source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0-rc9#7d8d2dccd6f46c717a13c5b60a925ec1a14a6d04"
+version = "3.2.0"
+source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0#8dc79d43feae6d652620b6e32abcfc05906d1ead"
 
 [[package]]
 name = "cli"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "auth",
  "hostnet",
@@ -119,7 +119,7 @@ dependencies = [
 
 [[package]]
 name = "cloudflared-lean"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "applib",
  "leanh2",
@@ -132,27 +132,27 @@ dependencies = [
 
 [[package]]
 name = "config"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "types",
 ]
 
 [[package]]
 name = "dev"
-version = "3.2.0-rc9"
-source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0-rc9#7d8d2dccd6f46c717a13c5b60a925ec1a14a6d04"
+version = "3.2.0"
+source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0#8dc79d43feae6d652620b6e32abcfc05906d1ead"
 
 [[package]]
 name = "discovery"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "types",
 ]
 
 [[package]]
 name = "executor"
-version = "3.2.0-rc9"
-source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0-rc9#7d8d2dccd6f46c717a13c5b60a925ec1a14a6d04"
+version = "3.2.0"
+source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0#8dc79d43feae6d652620b6e32abcfc05906d1ead"
 dependencies = [
  "dev",
  "sync",
@@ -160,12 +160,12 @@ dependencies = [
 
 [[package]]
 name = "heap"
-version = "3.2.0-rc9"
-source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0-rc9#7d8d2dccd6f46c717a13c5b60a925ec1a14a6d04"
+version = "3.2.0"
+source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0#8dc79d43feae6d652620b6e32abcfc05906d1ead"
 
 [[package]]
 name = "hop-http"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "api",
  "applib",
@@ -175,7 +175,7 @@ dependencies = [
 
 [[package]]
 name = "hopdns"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "applib",
  "hoplib",
@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "hoplb"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "applib",
  "applibhttp",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "hoplib"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "api",
  "applib",
@@ -208,7 +208,7 @@ dependencies = [
 
 [[package]]
 name = "hoplockserver"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "applib",
  "applibhttp",
@@ -222,7 +222,7 @@ dependencies = [
 
 [[package]]
 name = "hopos-runner"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "abi",
  "agent",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "hopprom"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "abi",
  "applib",
@@ -246,7 +246,7 @@ dependencies = [
 
 [[package]]
 name = "hostnet"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "leanhttp",
  "leanhttps",
@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "leader"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "config",
  "types",
@@ -266,22 +266,22 @@ dependencies = [
 [[package]]
 name = "leancrypto"
 version = "3.2.0"
-source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0-rc3#af6410e22a479169a162fbc578ff62b5693f20f8"
+source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0#36212e601bbcf6a76149e089a606012c609cb1c9"
 
 [[package]]
 name = "leanh2"
 version = "3.2.0"
-source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0-rc3#af6410e22a479169a162fbc578ff62b5693f20f8"
+source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0#36212e601bbcf6a76149e089a606012c609cb1c9"
 
 [[package]]
 name = "leanhttp"
 version = "3.2.0"
-source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0-rc3#af6410e22a479169a162fbc578ff62b5693f20f8"
+source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0#36212e601bbcf6a76149e089a606012c609cb1c9"
 
 [[package]]
 name = "leanhttps"
 version = "3.2.0"
-source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0-rc3#af6410e22a479169a162fbc578ff62b5693f20f8"
+source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0#36212e601bbcf6a76149e089a606012c609cb1c9"
 dependencies = [
  "leanhttp",
  "leantls",
@@ -290,17 +290,17 @@ dependencies = [
 [[package]]
 name = "leannet"
 version = "3.2.0"
-source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0-rc3#af6410e22a479169a162fbc578ff62b5693f20f8"
+source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0#36212e601bbcf6a76149e089a606012c609cb1c9"
 
 [[package]]
 name = "leanrand"
 version = "3.2.0"
-source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0-rc3#af6410e22a479169a162fbc578ff62b5693f20f8"
+source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0#36212e601bbcf6a76149e089a606012c609cb1c9"
 
 [[package]]
 name = "leans3"
 version = "3.2.0"
-source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0-rc3#af6410e22a479169a162fbc578ff62b5693f20f8"
+source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0#36212e601bbcf6a76149e089a606012c609cb1c9"
 dependencies = [
  "leancrypto",
 ]
@@ -308,7 +308,7 @@ dependencies = [
 [[package]]
 name = "leans3http"
 version = "3.2.0"
-source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0-rc3#af6410e22a479169a162fbc578ff62b5693f20f8"
+source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0#36212e601bbcf6a76149e089a606012c609cb1c9"
 dependencies = [
  "leanhttp",
  "leans3",
@@ -317,22 +317,22 @@ dependencies = [
 [[package]]
 name = "leantls"
 version = "3.2.0"
-source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0-rc3#af6410e22a479169a162fbc578ff62b5693f20f8"
+source = "git+https://github.com/haas-software/lean.git?tag=v3.2.0#36212e601bbcf6a76149e089a606012c609cb1c9"
 dependencies = [
  "leancrypto",
 ]
 
 [[package]]
 name = "netdev"
-version = "3.2.0-rc9"
-source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0-rc9#7d8d2dccd6f46c717a13c5b60a925ec1a14a6d04"
+version = "3.2.0"
+source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0#8dc79d43feae6d652620b6e32abcfc05906d1ead"
 dependencies = [
  "sync",
 ]
 
 [[package]]
 name = "runner"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "hostnet",
  "leanhttp",
@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "store"
-version = "3.2.0-rc9"
+version = "3.2.0"
 dependencies = [
  "config",
  "discovery",
@@ -354,12 +354,12 @@ dependencies = [
 
 [[package]]
 name = "sync"
-version = "3.2.0-rc9"
-source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0-rc9#7d8d2dccd6f46c717a13c5b60a925ec1a14a6d04"
+version = "3.2.0"
+source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0#8dc79d43feae6d652620b6e32abcfc05906d1ead"
 dependencies = [
  "bounded",
 ]
 
 [[package]]
 name = "types"
-version = "3.2.0-rc9"
+version = "3.2.0"
