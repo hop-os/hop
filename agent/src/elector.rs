@@ -1,7 +1,7 @@
 //! De verkiezingskant van de eigenaar: het laatste antwoord van de lease-opslag en de timer van onze eigen lease.
 //!
 //! Go's `AsyncDiscoverer` (`internal/agentloop/async.go` op
-//! github.com/xinix00/hop, tag v1.0.7), met één
+//! github.com/hop-os/hop, tag v1.0.7), met één
 //! eigenaar per staat in plaats van een ops-kanaal naar een goroutine. De
 //! opslag zelf (S3, hoplockserver, in geheugen) is van een andere eigenaar:
 //! een thread op de host, een taak op HopOS. De [`Elector`] stuurt die

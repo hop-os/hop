@@ -89,7 +89,7 @@ impl Events {
 #[cfg(test)]
 mod tests {
     //! De tests van `internal/leader/events_test.go` uit de Go-generatie
-    //! (github.com/xinix00/hop, tag v1.0.7), naar de rij vertaald.
+    //! (github.com/hop-os/hop, tag v1.0.7), naar de rij vertaald.
 
     use super::*;
     use alloc::string::ToString;

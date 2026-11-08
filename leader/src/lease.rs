@@ -274,7 +274,7 @@ impl LeaseStore for MemLease {
 #[cfg(test)]
 mod tests {
     //! De lease-tests van `internal/discovery/discovery_test.go` en
-    //! `hoplock/mem` uit de Go-generatie (github.com/xinix00/hop, tag
+    //! `hoplock/mem` uit de Go-generatie (github.com/hop-os/hop, tag
     //! v1.0.7). De klok is hier een getal.
 
     use super::*;

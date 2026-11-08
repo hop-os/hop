@@ -1,6 +1,6 @@
 # hopdns
 
-DNS service discovery for [Hop](https://github.com/xinix00/hop), with
+DNS service discovery for [Hop](https://github.com/hop-os/hop), with
 federation. A job name becomes an A record: `myapp.hop.local` answers with
 the address of every running task of `myapp`, across all clusters.
 
@@ -8,7 +8,7 @@ hopdns v3 is written in Rust and comes in two shapes built from one core:
 
 - **`hopdns`**, the host daemon (Linux, macOS): a UDP server on std
   sockets, one watcher thread per peer.
-- **`hopdns-hopos`**, a resident of [HopOS](https://github.com/xinix00/HopOS):
+- **`hopdns-hopos`**, a resident of [HopOS](https://github.com/hop-os/HopOS):
   the same core on the app executor and the slot's own network stack,
   placed by Hop like any other job.
 

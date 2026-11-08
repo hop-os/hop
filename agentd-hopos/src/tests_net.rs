@@ -477,7 +477,7 @@ fn https_goes_through_tls_with_the_name_as_sni() {
     // dialer de naam opzocht, poort 443 opende en een ClientHello met de
     // naam erin stuurde. Geen GET in platte tekst.
     let (r, _, seen) = fetch(
-        "https://github.com/xinix00/HopOS/releases/download/apps/welcome.elf",
+        "https://github.com/hop-os/HopOS/releases/download/apps/welcome.elf",
         &[b"HTTP/1.1 400 Bad Request\r\n\r\n"],
         now,
     );
@@ -613,7 +613,7 @@ fn std_ns() -> u64 {
 #[ignore = "heeft internet nodig; tools/github-download.sh"]
 fn real_github_release_download() {
     let url = std::env::var("HOP_TEST_URL").unwrap_or_else(|_| {
-        String::from("https://github.com/xinix00/HopOS/releases/download/apps/welcome-arm64.elf")
+        String::from("https://github.com/hop-os/HopOS/releases/download/apps/welcome-arm64.elf")
     });
     let mut seed = [0u8; 32];
     std::fs::File::open("/dev/urandom")

@@ -5,7 +5,7 @@
 //! zodat een job die de API binnenkomt byte voor byte dezelfde is als die de
 //! leader naar een agent stuurt en die in de gecommitte snapshot staat.
 //!
-//! De JSON-vorm volgt de Go-generatie (github.com/xinix00/hop, tag v1.0.7,
+//! De JSON-vorm volgt de Go-generatie (github.com/hop-os/hop, tag v1.0.7,
 //! `internal/types`) veld voor veld, zodat de GUI, de CLI en bestaande
 //! snapshots blijven werken.
 //!
@@ -118,7 +118,7 @@ pub fn try_push_str(out: &mut alloc::string::String, s: &str) -> Result {
 #[cfg(test)]
 mod tests {
     //! De tests van `internal/types/types_test.go` uit de Go-generatie
-    //! (github.com/xinix00/hop, tag v1.0.7), plus de jobspecs uit `jobs/`
+    //! (github.com/hop-os/hop, tag v1.0.7), plus de jobspecs uit `jobs/`
     //! daar als vectoren, letterlijk in de toetsen overgenomen.
 
     use super::*;

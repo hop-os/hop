@@ -1,4 +1,4 @@
-//! De tests van `cmd/cli/main_test.go` (github.com/xinix00/hop, tag v1.0.7),
+//! De tests van `cmd/cli/main_test.go` (github.com/hop-os/hop, tag v1.0.7),
 //! naam voor naam, plus de
 //! vlaggen, de tabel en de body van `apply`.
 

@@ -1,6 +1,6 @@
 # hoplb
 
-Hostname-based load balancer for [Hop](https://github.com/xinix00/hop), with
+Hostname-based load balancer for [Hop](https://github.com/hop-os/hop), with
 Prometheus metrics. One Rust crate, two forms:
 
 | Form | Build | Runs on |

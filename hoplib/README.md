@@ -30,7 +30,7 @@ travels. An empty or missing key sends no header (unauthenticated mode).
 
 ```toml
 [dependencies]
-hoplib = { git = "https://github.com/xinix00/hop.git", tag = "<a hop tag>", features = ["std"] }
+hoplib = { git = "https://github.com/hop-os/hop.git", tag = "<a hop tag>", features = ["std"] }
 ```
 
 On the host:

@@ -1,7 +1,7 @@
 # hoplockserver
 
 A tiny HTTP server that exposes the minimum compare-and-swap API needed to
-back [hoplock](https://github.com/xinix00/hoplock) leader election, the
+back [hoplock](https://github.com/hop-os/hoplock) leader election, the
 lease that Hop's leaders hold. Think of it as a fake S3 for lease files:
 GET, PUT and DELETE on opaque keys, with `If-Match` and `If-None-Match`
 preconditions, and one shared API key. No buckets, no SigV4, no AWS account.
@@ -129,7 +129,7 @@ leading `/`, or anything that climbs out (`..`) is invalid.
 
 ### Where the Rust server differs from the Go one
 
-The HTTP layer is [leanhttp](https://github.com/xinix00/lean) instead of
+The HTTP layer is [leanhttp](https://github.com/haas-software/lean) instead of
 `net/http`. None of these reach Hop's client or the Go client:
 
 - a non-canonical path (`//a`, `/a/../b`) is 400, where Go redirected (301);
@@ -205,4 +205,4 @@ checkout (`HOPOS_DIR`, default `../../hop-os` from the hop root) into
 
 ## Status
 
-Part of the [Hop infrastructure suite](https://github.com/xinix00/hop).
+Part of the [Hop infrastructure suite](https://github.com/hop-os/hop).

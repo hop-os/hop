@@ -1,7 +1,7 @@
 //! De lock van de cluster op HopOS: welke opslag de lease en de clusterstaat krijgen, en de async contracten ervan.
 //!
 //! In Go deed een HopOS-node alleen de S3-lock (`hopos.s3.*`, zie
-//! `pkg/agentboot` op github.com/xinix00/hop, tag v1.0.7). Deze bewoner
+//! `pkg/agentboot` op github.com/hop-os/hop, tag v1.0.7). Deze bewoner
 //! spreekt beide protocollen van de host (`store`): een hoplockserver
 //! (`HOPOS_LOCK_URL`, het CAS-protocol over http) en S3 (`HOPOS_S3_*`,
 //! leans3 over leans3http en `WebDial`). De keuze is die van de daemon

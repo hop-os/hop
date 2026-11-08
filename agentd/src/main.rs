@@ -1,5 +1,5 @@
 //! `agentd`: de Hop-daemon voor Linux en macOS, zoals `cmd/agent` in Go
-//! (github.com/xinix00/hop, tag v1.0.7).
+//! (github.com/hop-os/hop, tag v1.0.7).
 //!
 //! Bij de start (hier, vóór de eerste thread): de vlaggen en de config
 //! (JSON, `config::Config`), het node-id, het IP, de maat van de host, de

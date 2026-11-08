@@ -15,7 +15,7 @@
 //! Go-generatie koos voor "geen klok, geen nonce, geen serverstaat", zodat
 //! een handtekening een failover overleeft en de proxy van een agent hem
 //! ongewijzigd naar de leader kan doorzetten (`docs/api.md` van de
-//! Go-generatie, github.com/xinix00/hop, tag v1.0.7). Een letterlijke replay
+//! Go-generatie, github.com/hop-os/hop, tag v1.0.7). Een letterlijke replay
 //! van een onderschept verzoek blijft daardoor mogelijk; het dreigingsmodel
 //! staat in `SECURITY.md` op dezelfde tag. Een venster toevoegen
 //! verandert het protocol voor CLI, GUI en satellieten tegelijk, en hoort dus

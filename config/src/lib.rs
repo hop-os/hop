@@ -579,7 +579,7 @@ fn trim_start(data: &[u8]) -> &[u8] {
 #[cfg(test)]
 mod tests {
     //! De tests van `pkg/config/config_test.go` uit de Go-generatie
-    //! (github.com/xinix00/hop, tag v1.0.7). Go las een bestand; hier krijgt
+    //! (github.com/hop-os/hop, tag v1.0.7). Go las een bestand; hier krijgt
     //! de lezer de bytes, dus "geen bestand" is de default zelf.
 
     use super::*;
