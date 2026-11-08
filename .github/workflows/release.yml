@@ -55,15 +55,15 @@ jobs:
       - name: Build
         run: |
           cargo build --release --target ${{ matrix.target }} \
-            -p agentd -p cli -p hoplockserver -p hoplb -p hopdns -p hopprom -p hop-gui \
-            --features hopdns/std,hopprom/std,hop-gui/std
+            -p agentd -p cli -p hoplockserver -p hoplb -p hopdns -p hopprom \
+            --features hopdns/std,hopprom/std
       - name: Pack
         run: |
           VERSION="${GITHUB_REF_NAME}"
           BIN="target/${{ matrix.target }}/release"
           mkdir -p dist
           # <tarball>:<binaries erin>
-          for spec in "hop:agentd hop" hoplockserver hoplb hopdns hopprom hop-gui; do
+          for spec in "hop:agentd hop" hoplockserver hoplb hopdns hopprom; do
             name="${spec%%:*}"
             bins="${spec#*:}"
             dir="${name}-${VERSION}-${{ matrix.name }}"
@@ -95,7 +95,6 @@ jobs:
           T=aarch64-unknown-none-softfloat
           cargo build --release --target $T -p hopdns --features hopos --bin hopdns-hopos
           cargo build --release --target $T -p hopprom --features hopos --bin hopprom-hopos
-          cargo build --release --target $T -p hop-gui --features hopos --bin hop-gui-hopos
           cargo build --release --target $T -p hoplb --no-default-features --features hopos --bin hoplb-hopos
           cargo build --release --target $T -p hoplockserver --no-default-features --features hopos --bin hoplockserver-hopos
           # cloudflared-lean ook voor riscv64: de tunnel draait op elk board.
@@ -105,7 +104,7 @@ jobs:
       - name: Collect
         run: |
           mkdir -p dist
-          for a in hopdns hopprom hop-gui hoplb hoplockserver; do
+          for a in hopdns hopprom hoplb hoplockserver; do
             cp "target/aarch64-unknown-none-softfloat/release/${a}-hopos" "dist/${a}-arm64.elf"
           done
           cp target/aarch64-unknown-none-softfloat/release/cloudflared-lean dist/cloudflared-lean-arm64.elf

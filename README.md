@@ -37,8 +37,11 @@ apps/       the apps Hop ships, each a host daemon (`std`) and a HopOS resident 
   hoplb/          the HTTP load balancer on hostname, with Prometheus metrics
   hopprom/        the Prometheus exporter for the cluster
   hoplockserver/  the compare-and-swap lease store under hoplock (a fake S3)
-  hop-gui/        the static dashboard and its server
 ```
+
+The dashboard is its own repo, [hop-os/hop-gui](https://github.com/hop-os/hop-gui):
+static files only, served by Cloudflare. Checked out next to this repo
+(`../hop-gui`, or `HOP_GUI_DIR`), `api`'s tests check every route it calls.
 
 The core crates never depend on `hoplib` or `apps/`: the apps stand on Hop,
 not the other way round (`tools/gate.sh` checks it). lean and HopOS are

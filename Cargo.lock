@@ -164,16 +164,6 @@ version = "3.2.0-rc9"
 source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0-rc9#7d8d2dccd6f46c717a13c5b60a925ec1a14a6d04"
 
 [[package]]
-name = "hop-gui"
-version = "3.2.0-rc9"
-dependencies = [
- "applib",
- "applibhttp",
- "hostnet",
- "leanhttp",
-]
-
-[[package]]
 name = "hop-http"
 version = "3.2.0-rc9"
 dependencies = [

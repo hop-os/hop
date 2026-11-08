@@ -29,7 +29,6 @@ members = [
     "apps/hoplb",
     "apps/hopprom",
     "apps/hoplockserver",
-    "apps/hop-gui/server",
     "apps/cloudflared-lean",
 ]
 
