@@ -162,7 +162,7 @@ impl Default for ClusterConfig {
 pub struct LockConfig {
     /// `"s3"` of `"mem"`; leeg is standalone.
     pub kind: String,
-    /// De sleutel van het lease-object (standaard `clusters/<naam>/lease.json`).
+    /// De sleutel van het lease-object (standaard `leases/<cluster>`).
     pub key: String,
     /// De S3-instellingen als `kind` `"s3"` is.
     pub s3: S3LockConfig,
