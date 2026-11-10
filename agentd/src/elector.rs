@@ -5,9 +5,9 @@
 //! eigenaar per staat in plaats van een ops-kanaal naar een goroutine:
 //!
 //! - De lease-thread ([`spawn`]) bezit de [`discovery::Discovery`] (de
-//!   handle en generatie van onze lease) en de backend (S3, hoplockserver of
-//!   in geheugen). Hij voert één opdracht tegelijk uit en meldt de uitkomst
-//!   als [`Msg::Lease`].
+//!   handle en generatie van onze lease) en de backend (S3 of in
+//!   geheugen). Hij voert één opdracht tegelijk uit en meldt de uitkomst als
+//!   [`Msg::Lease`].
 //! - De eigenaar bezit een [`Elector`] (de gedeelde, `no_std`-versie uit
 //!   `agent`, dezelfde als op HopOS): het laatste antwoord van de opslag en
 //!   de timer van onze eigen lease. [`agent::Election`] vraagt hem, en elke

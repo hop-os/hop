@@ -1,11 +1,10 @@
 //! De opslag van de gecommitte clusterstaat op een eigen thread.
 //!
-//! Bezit de [`store::StateStore`] (S3, hoplockserver of een bestand). De
-//! leader schrijft elke gedebouncede snapshot weg, en op een trage opslag
-//! kost één PUT seconden (Bunny: 4 tot 20 s, 08-09-2026); de eigenaar
-//! stuurt de bytes en werkt door. Alleen het laden bij het leider worden
-//! wacht de eigenaar af: zonder de staat weet een verse leider niet wat er
-//! moet draaien.
+//! Bezit de [`store::StateStore`] (S3 of een bestand). De leader schrijft
+//! elke gedebouncede snapshot weg, en op een trage opslag kost één PUT
+//! seconden (Bunny: 4 tot 20 s, 08-09-2026); de eigenaar stuurt de bytes en
+//! werkt door. Alleen het laden bij het leider worden wacht de eigenaar af:
+//! zonder de staat weet een verse leider niet wat er moet draaien.
 
 use std::sync::mpsc::{self, Sender, SyncSender};
 use std::time::Duration;

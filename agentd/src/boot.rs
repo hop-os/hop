@@ -23,7 +23,6 @@ pub(crate) struct Flags {
     pub(crate) config: String,
     pub(crate) node: String,
     pub(crate) cluster: String,
-    pub(crate) lock: String,
     pub(crate) standalone: bool,
     pub(crate) api_key: String,
 }
@@ -49,7 +48,6 @@ pub(crate) fn parse_flags(args: &[String]) -> Result<Flags, String> {
             "config" => &mut f.config,
             "node" => &mut f.node,
             "cluster" => &mut f.cluster,
-            "lock" => &mut f.lock,
             "api-key" => &mut f.api_key,
             "help" | "h" => return Err(String::from(USAGE)),
             other => return Err(format!("unknown flag --{other}\n{USAGE}")),
@@ -66,7 +64,8 @@ pub(crate) fn parse_flags(args: &[String]) -> Result<Flags, String> {
 }
 
 /// De gebruiksregel.
-pub(crate) const USAGE: &str = "Usage: agentd [--config FILE] [--node ID] [--cluster NAME] [--lock URL] [--standalone] [--api-key KEY]";
+pub(crate) const USAGE: &str =
+    "Usage: agentd [--config FILE] [--node ID] [--cluster NAME] [--standalone] [--api-key KEY]";
 
 /// Leest de config; een ontbrekend bestand is de standaard (Go: `config.Load`).
 pub(crate) fn load_config(path: &str) -> Result<(Config, bool), String> {
@@ -87,17 +86,13 @@ pub(crate) fn apply_flags(cfg: &mut Config, f: &Flags) -> Result<bool, String> {
     if !f.cluster.is_empty() {
         cfg.cluster.name.clone_from(&f.cluster);
     }
-    if !f.lock.is_empty() && !f.standalone {
-        cfg.cluster.lock.kind = String::from("hoplockserver");
-        cfg.cluster.lock.url.clone_from(&f.lock);
-    }
     if !f.api_key.is_empty() {
         cfg.api_key.clone_from(&f.api_key);
     }
     if !f.node.is_empty() {
         cfg.node.id.clone_from(&f.node);
     }
-    // Geen lock-backend: standalone (in geheugen). Hop is dan bruikbaar met
+    // Geen lock-type: standalone (in geheugen). Hop is dan bruikbaar met
     // niets dan een clusternaam.
     let standalone = f.standalone || !store::lock_configured(&cfg.cluster.lock);
     if cfg.cluster.name.is_empty() {

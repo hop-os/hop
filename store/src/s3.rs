@@ -233,7 +233,7 @@ impl S3Lease {
 /// Met alleen een fasetermijn kon één schrijf (PUT, 412, HEAD, tweede PUT,
 /// elk met een verbinding, een kop en een body) een veelvoud daarvan
 /// duren, en verliep de lease terwijl de vernieuwing nog wachtte.
-pub(crate) fn deadline(timeout: Duration) -> Instant {
+fn deadline(timeout: Duration) -> Instant {
     Instant::now() + timeout
 }
 

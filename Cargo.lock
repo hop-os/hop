@@ -159,6 +159,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fakes3"
+version = "3.2.0"
+dependencies = [
+ "hostnet",
+ "leanhttp",
+]
+
+[[package]]
 name = "heap"
 version = "3.2.0"
 source = "git+https://github.com/hop-os/HopOS.git?tag=v3.2.0#8dc79d43feae6d652620b6e32abcfc05906d1ead"
@@ -204,20 +212,6 @@ dependencies = [
  "hostnet",
  "leanhttp",
  "types",
-]
-
-[[package]]
-name = "hoplockserver"
-version = "3.2.0"
-dependencies = [
- "applib",
- "applibhttp",
- "auth",
- "discovery",
- "hostnet",
- "leanhttp",
- "store",
- "sync",
 ]
 
 [[package]]

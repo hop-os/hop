@@ -3,7 +3,7 @@
 //! Go's `AsyncDiscoverer` (`internal/agentloop/async.go` op
 //! github.com/hop-os/hop, tag v1.0.7), met één
 //! eigenaar per staat in plaats van een ops-kanaal naar een goroutine. De
-//! opslag zelf (S3, hoplockserver, in geheugen) is van een andere eigenaar:
+//! opslag zelf (S3, in geheugen) is van een andere eigenaar:
 //! een thread op de host, een taak op HopOS. De [`Elector`] stuurt die
 //! eigenaar een [`LeaseOp`] via zijn [`LeaseOps`], en krijgt het antwoord
 //! later als [`LeaseReply`] terug ([`Elector::on_reply`]). [`crate::Election`]

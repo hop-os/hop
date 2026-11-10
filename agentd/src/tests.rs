@@ -72,22 +72,16 @@ fn flags_override_config_and_pick_standalone() {
     assert_eq!(cfg.api_key, "k");
     assert_eq!(cfg.paths.state_file, "./data/state-prod.json");
 
-    let f = Flags {
-        lock: String::from("http://lock:8090"),
-        ..Flags::default()
-    };
+    // Een lock-type in de config: geclusterd, tenzij --standalone.
     let mut cfg = Config::default();
-    assert!(!boot::apply_flags(&mut cfg, &f).unwrap());
-    assert_eq!(cfg.cluster.lock.kind, "hoplockserver");
-    // --standalone wint van --lock.
+    cfg.cluster.lock.kind = String::from("s3");
+    assert!(!boot::apply_flags(&mut cfg, &Flags::default()).unwrap());
     let f = Flags {
-        lock: String::from("http://lock:8090"),
         standalone: true,
         ..Flags::default()
     };
-    let mut cfg = Config::default();
     assert!(boot::apply_flags(&mut cfg, &f).unwrap());
-    assert!(cfg.cluster.lock.url.is_empty());
+    assert!(boot::parse_flags(&["--lock".to_string(), "http://lock:8090".to_string()]).is_err());
 
     assert!(boot::parse_flags(&["--bogus".to_string()]).is_err());
     assert!(boot::parse_flags(&["--node".to_string()]).is_err());

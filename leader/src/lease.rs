@@ -4,8 +4,8 @@
 //! niet de opslag. De opslag is een [`LeaseStore`]: een blob met een
 //! ondoorzichtige handle (bij S3 de ETag) waarop elke schrijf een
 //! voorwaarde zet. Wederzijdse uitsluiting zit helemaal in die voorwaarde:
-//! geen quorum, geen log. De echte implementatie over S3 of hoplockserver
-//! komt later; [`MemLease`] is de nep voor tests en standalone.
+//! geen quorum, geen log. De echte implementatie over S3 komt later;
+//! [`MemLease`] is de nep voor tests en standalone.
 //!
 //! Tijd komt binnen als parameter; deze module leest geen klok.
 

@@ -139,19 +139,17 @@ fn run<S>(
     (state, log)
 }
 
-/// Een object-store met het CAS-protocol van S3 en hoplockserver.
+/// Een object-store met het CAS-protocol van S3.
 ///
 /// Sleutel is het pad; de ETag is `"etag-<n>"` met een teller over de hele
 /// store. Met `bare_if_match` vergelijkt hij `If-Match` alleen met de kale
-/// ETag (Hetzner, Ceph); met `api_key` weigert hij verzoeken zonder de
-/// juiste `X-API-Key` met 401; met `require_sig` weigert hij verzoeken
-/// zonder SigV4-handtekening met 403.
+/// ETag (Hetzner, Ceph); met `require_sig` weigert hij verzoeken zonder
+/// SigV4-handtekening met 403.
 #[derive(Debug, Default)]
 pub(crate) struct Objects {
     pub(crate) data: BTreeMap<String, (Vec<u8>, String)>,
     pub(crate) seq: u32,
     pub(crate) bare_if_match: bool,
-    pub(crate) api_key: Option<&'static str>,
     pub(crate) require_sig: bool,
 }
 
@@ -167,11 +165,6 @@ impl Objects {
 
 /// De handler van [`Objects`].
 pub(crate) fn objects(s: &mut Objects, r: &Seen) -> Answer {
-    if let Some(key) = s.api_key
-        && r.header("X-API-Key") != key
-    {
-        return Answer::status(401).body(b"unauthorized");
-    }
     if s.require_sig && !r.header("Authorization").starts_with("AWS4-HMAC-SHA256 ") {
         return Answer::status(403).body(b"missing sigv4 auth");
     }

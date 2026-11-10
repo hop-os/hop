@@ -19,8 +19,8 @@
 //! anders voor altijd vasthouden.
 //!
 //! Wat hier niet staat: welke URL en welke koppen (de backends in
-//! [`crate::hoplock`] en [`crate::s3`], de link in [`crate::link`], de
-//! doorgifte in [`crate::forward`]).
+//! [`crate::s3`], de link in [`crate::link`], de doorgifte in
+//! [`crate::forward`]).
 
 use alloc::format;
 use alloc::string::String;
@@ -293,10 +293,4 @@ pub fn redact(url: &str) -> String {
         Some(s) => format!("{s}://{host}{tail}"),
         None => format!("{host}{tail}"),
     }
-}
-
-/// Het begin van een foutbody, als tekst en getrimd (hoogstens 256 bytes).
-pub fn excerpt(body: &[u8]) -> String {
-    let cut = body.get(..256).unwrap_or(body);
-    String::from(String::from_utf8_lossy(cut).trim())
 }

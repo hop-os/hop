@@ -3,7 +3,8 @@
 # no_std-bouw voor het target. Rood is rood.
 #
 # De no_std-stap geldt alleen voor de logica-crates en de HopOS-bewoner; de
-# host-crates (hostnet, store, agentd, cli) zijn std en blijven erbuiten.
+# host-crates (hostnet, store, agentd, cli, en de testtool fakes3) zijn std
+# en blijven erbuiten.
 # Zonder `agentd` in die bouw staat de feature `std` van `runner` uit, dus
 # bouwt runner daar precies zoals de bewoner hem gebruikt. De docker-tests
 # van runner draaien alleen met HOP_TEST_DOCKER=1.
@@ -13,15 +14,15 @@
 # HOP_GATE_CORE=1 alleen de kern.
 set -e
 cd "$(dirname "$0")/.."
-APPS="hoplib apps/hopdns apps/hoplb apps/hopprom apps/hoplockserver apps/cloudflared-lean"
-HOST_CRATES="--exclude hostnet --exclude store --exclude agentd --exclude cli"
-APP_CRATES="--exclude hoplib --exclude hopdns --exclude hoplb --exclude hopprom --exclude hoplockserver --exclude cloudflared-lean"
+APPS="hoplib apps/hopdns apps/hoplb apps/hopprom apps/cloudflared-lean"
+HOST_CRATES="--exclude hostnet --exclude store --exclude agentd --exclude cli --exclude fakes3"
+APP_CRATES="--exclude hoplib --exclude hopdns --exclude hoplb --exclude hopprom --exclude cloudflared-lean"
 
 echo "== randen"
 # De kern hangt nooit van hoplib of een app af: die staan op Hop, niet andersom.
 # shellcheck disable=SC2086
 tree="$(cargo tree --quiet --workspace $APP_CRATES -e normal,build,dev --prefix none)"
-if printf '%s\n' "$tree" | grep -E '^(hoplib|hopdns|hoplb|hopprom|hoplockserver|cloudflared-lean) '; then
+if printf '%s\n' "$tree" | grep -E '^(hoplib|hopdns|hoplb|hopprom|cloudflared-lean) '; then
 	echo "ROOD: een kern-crate hangt van hoplib of een app af"
 	exit 1
 fi

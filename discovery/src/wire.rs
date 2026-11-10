@@ -8,8 +8,7 @@
 //!
 //! Hier en niet in `store`, zodat de host-backends (`store`, std) en die van
 //! de HopOS-bewoner (`agentd-hopos`, `no_std`) dezelfde bytes schrijven: een
-//! host-agent en een HopOS-node delen één lease op één hoplockserver of
-//! bucket.
+//! host-agent en een HopOS-node delen één lease in één bucket.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;

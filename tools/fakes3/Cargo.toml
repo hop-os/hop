@@ -1,0 +1,21 @@
+[package]
+name = "fakes3"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Een nep-S3 voor tests: objecten in het geheugen, GET/HEAD/PUT/DELETE met If-Match en If-None-Match, geen handtekening."
+publish = false
+
+[[bin]]
+name = "fakes3"
+path = "src/main.rs"
+bench = false
+
+[dependencies]
+hostnet = { path = "../../hostnet" }
+leanhttp = { workspace = true }
+
+[lints]
+workspace = true

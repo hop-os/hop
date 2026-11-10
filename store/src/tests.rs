@@ -1,5 +1,4 @@
-//! De Go-tests naam voor naam: `hoplock/s3` (s3_test.go, ghost_test.go),
-//! `hoplockserver/client` (client_test.go, object_test.go) en
+//! De Go-tests naam voor naam: `hoplock/s3` (s3_test.go, ghost_test.go) en
 //! `internal/discovery` (statestore_test.go, en discovery_test.go voor zover
 //! over de backends). De Go-naam staat boven elke test.
 
@@ -12,8 +11,8 @@ use discovery::{Backend, Discovery, Error as LeaseError, LeaseState};
 use hostnet::{Call, Http};
 
 use crate::{
-    Error, FileStateStore, HoplockLease, HoplockStateStore, Lease, S3Lease, S3StateStore,
-    StateStore, lock_configured, lock_label, open_lease, open_state_store, wire,
+    Error, FileStateStore, Lease, S3Lease, StateStore, lock_configured, lock_label, open_lease,
+    open_state_store, wire,
 };
 use fake::{Fake, Ghost, Objects};
 
@@ -274,103 +273,6 @@ fn ghost_takeover_disabled_by_default() {
     assert_eq!(count(&log, "HEAD"), 0, "no HEAD without a takeover term");
 }
 
-// ---- hoplockserver/client: client_test.go en object_test.go ----
-
-fn hoplock_server(api_key: Option<&'static str>) -> Fake<Objects> {
-    let objects = Objects {
-        api_key,
-        ..Objects::default()
-    };
-    Fake::spawn(objects, fake::objects)
-}
-
-// TestBackendRoundtrip
-#[test]
-fn backend_roundtrip() {
-    let f = hoplock_server(None);
-    let mut b = HoplockLease::new(&f.url(), "", "lease/cluster", T);
-    assert_eq!(b.read(), Err(LeaseError::NoLease));
-
-    let handle = b.write("", &lease("node-a", 1)).unwrap();
-    assert!(!handle.is_empty());
-    assert_eq!(b.write("", &lease("node-a", 1)), Err(LeaseError::LeaseHeld));
-
-    let (got, got_handle) = b.read().unwrap();
-    assert_eq!(got.owner, "node-a");
-    assert_eq!(got_handle, handle);
-
-    assert_eq!(
-        b.write("stale", &lease("node-a", 2)),
-        Err(LeaseError::LeaseHeld)
-    );
-    let handle2 = b.write(&handle, &lease("node-a", 2)).unwrap();
-    assert_ne!(handle2, handle);
-
-    assert_eq!(b.delete(&handle), Err(LeaseError::LeaseHeld));
-    assert_eq!(b.delete(&handle2), Ok(()));
-    assert_eq!(b.delete(&handle2), Err(LeaseError::NoLease));
-    let (_, log) = f.stop();
-    assert!(log.iter().all(|s| s.path == "/lease/cluster"));
-}
-
-// TestBackendAuth
-#[test]
-fn backend_auth() {
-    let f = hoplock_server(Some("secret"));
-    let mut no_key = HoplockLease::new(&f.url(), "", "lease/x", T);
-    // Een auth-fout is geen "geen lease" maar een onbereikbare opslag.
-    assert_eq!(no_key.read(), Err(LeaseError::Unreachable));
-    let why = no_key.last_error().unwrap().to_string();
-    assert!(why.contains("401"), "{why}");
-
-    let mut good = HoplockLease::new(&f.url(), "secret", "lease/x", T);
-    assert_eq!(good.read(), Err(LeaseError::NoLease));
-    // De sleutel staat in geen Debug.
-    assert!(!format!("{good:?}").contains("secret"));
-    f.stop();
-}
-
-// TestObjectRoundtrip
-#[test]
-fn object_roundtrip() {
-    let f = hoplock_server(None);
-    let mut s = HoplockStateStore::new(&f.url(), "", "cluster", T);
-    // Afwezig: None en geen fout (schone start).
-    assert_eq!(s.load(), Ok(None));
-    let first = br#"{"jobs":["a"]}"#;
-    s.save(first).unwrap();
-    assert_eq!(s.load().unwrap().as_deref(), Some(&first[..]));
-    // Onvoorwaardelijk overschrijven (geen CAS): de tweede wint.
-    let second = br#"{"jobs":["a","b"]}"#;
-    s.save(second).unwrap();
-    assert_eq!(s.load().unwrap().as_deref(), Some(&second[..]));
-    let (_, log) = f.stop();
-    assert!(
-        log.iter()
-            .all(|r| r.header("If-Match").is_empty() && r.header("If-None-Match").is_empty())
-    );
-}
-
-// TestObjectAuth
-#[test]
-fn object_auth() {
-    let f = hoplock_server(Some("secret"));
-    let mut no_key = HoplockStateStore::new(&f.url(), "", "x", T);
-    let err = no_key.save(b"{}").unwrap_err();
-    assert!(matches!(err, Error::Status { code: 401, .. }), "{err}");
-    let mut good = HoplockStateStore::new(&f.url(), "secret", "x", T);
-    good.save(b"{}").unwrap();
-    assert_eq!(good.load().unwrap().as_deref(), Some(&b"{}"[..]));
-    f.stop();
-}
-
-// TestPutObjectMissingURL
-#[test]
-fn put_object_missing_url() {
-    let mut s = HoplockStateStore::new("", "", "x", T);
-    assert!(s.save(b"{}").is_err());
-}
-
 // ---- internal/discovery: statestore_test.go ----
 
 // TestStateStoreFromConfigSelection
@@ -380,32 +282,21 @@ fn state_store_from_config_selection() {
         let d = open_state_store(cfg, standalone).describe();
         d.split(' ').next().unwrap().to_string()
     };
-    // Standalone: altijd het bestand, ook met een remote config.
+    // Standalone: altijd het bestand, ook met een S3-sectie.
     let mut stand = Config::default();
-    stand.cluster.lock.url = String::from("http://lock:8090");
+    stand.cluster.lock.s3 = s3_config("https://s3.example.com", "hop");
     assert_eq!(kind(&stand, true), "file");
     // Leeg en expliciet mem: het bestand (lock in dit proces).
     assert_eq!(kind(&Config::default(), false), "file");
     let mut mem = Config::default();
     mem.cluster.lock.kind = String::from("mem");
     assert_eq!(kind(&mem, false), "file");
-    // Expliciet hoplockserver met URL.
-    let mut hls = Config::default();
-    hls.cluster.name = String::from("prod");
-    hls.cluster.lock.kind = String::from("hoplockserver");
-    hls.cluster.lock.url = String::from("http://lock:8090");
-    assert_eq!(kind(&hls, false), "hoplockserver");
-    assert_eq!(
-        open_state_store(&hls, false).describe(),
-        "hoplockserver http://lock:8090/state/prod"
-    );
-    // Het standaardtype ("") met URL is ook hoplockserver.
-    let mut def = Config::default();
-    def.cluster.lock.url = String::from("http://lock:8090");
-    assert_eq!(kind(&def, false), "hoplockserver");
-    // Een bruikbare S3-sectie wint, ook naast een URL.
+    // Een S3-sectie zonder bucket: het bestand.
+    let mut half = Config::default();
+    half.cluster.lock.s3.endpoint = String::from("https://s3.example.com");
+    assert_eq!(kind(&half, false), "file");
+    // Een bruikbare S3-sectie wint.
     let mut s3 = Config::default();
-    s3.cluster.lock.url = String::from("http://lock:8090");
     s3.cluster.lock.s3.endpoint = String::from("https://s3.example.com");
     s3.cluster.lock.s3.bucket = String::from("hop");
     assert_eq!(kind(&s3, false), "s3");
@@ -440,35 +331,32 @@ fn file_state_store_roundtrip() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// TestHoplockServerStateStoreSaveLoad
-#[test]
-fn hoplock_server_state_store_save_load() {
-    let f = hoplock_server(None);
-    let mut cfg = Config::default();
-    cfg.cluster.name = String::from("prod");
-    cfg.cluster.lock.url = f.url();
-    let mut s = open_state_store(&cfg, false);
-    assert_eq!(s.load(), Ok(None));
-    let snap = br#"{"jobs":[{"name":"web"}]}"#;
-    s.save(snap).unwrap();
-    assert_eq!(s.load().unwrap().as_deref(), Some(&snap[..]));
-    let (store, _) = f.stop();
-    // Op state/<cluster>, naast (niet op) de lease.
-    assert!(store.data.contains_key("/state/prod"));
-    assert!(!store.data.contains_key("/leases/prod"));
-}
-
-/// Zoals hierboven, voor de S3-kant (Go: `S3StateStore`, zonder eigen test).
+// Go: `S3StateStore`, zonder eigen test; de staat via de config.
 #[test]
 fn s3_state_store_save_load() {
     let f = Fake::spawn(Objects::default(), fake::objects);
-    let mut s = S3StateStore::new(&s3_config(&f.url(), "bkt"), "prod", T);
+    let mut cfg = Config::default();
+    cfg.cluster.name = String::from("prod");
+    cfg.cluster.lock.kind = String::from("s3");
+    cfg.cluster.lock.s3 = s3_config(&f.url(), "bkt");
+    let mut s = open_state_store(&cfg, false);
     assert_eq!(s.load(), Ok(None));
-    s.save(b"{\"jobs\":[]}").unwrap();
-    assert_eq!(s.load().unwrap().as_deref(), Some(&b"{\"jobs\":[]}"[..]));
+    let first = br#"{"jobs":["a"]}"#;
+    s.save(first).unwrap();
+    assert_eq!(s.load().unwrap().as_deref(), Some(&first[..]));
+    // Onvoorwaardelijk overschrijven (geen CAS): de tweede wint.
+    let second = br#"{"jobs":["a","b"]}"#;
+    s.save(second).unwrap();
+    assert_eq!(s.load().unwrap().as_deref(), Some(&second[..]));
     assert!(!s.describe().contains(SECRET));
-    let (store, _) = f.stop();
+    let (store, log) = f.stop();
+    // Op state/<cluster>, naast (niet op) de lease.
     assert!(store.data.contains_key("/bkt/state/prod"));
+    assert!(!store.data.contains_key("/bkt/leases/prod"));
+    assert!(
+        log.iter()
+            .all(|r| r.header("If-Match").is_empty() && r.header("If-None-Match").is_empty())
+    );
 }
 
 // ---- internal/discovery: discovery_test.go, over de backends ----
@@ -503,27 +391,6 @@ fn renew_lease_distinguishes_displaced_from_unreachable() {
     assert!(!why.contains(SECRET), "{why}");
 }
 
-/// Dezelfde lus tegen de hoplockserver.
-#[test]
-fn discovery_over_hoplockserver() {
-    let f = hoplock_server(Some("k"));
-    let mut backend = HoplockLease::new(&f.url(), "k", "leases/c", T);
-    let mut a = Discovery::new(String::from("10.0.0.1:8080"), 30_000);
-    let mut b = Discovery::new(String::from("10.0.0.2:8080"), 30_000);
-    let now = 1_790_000_000_000;
-    assert!(a.try_become_leader(Some(&mut backend), now));
-    assert!(!b.try_become_leader(Some(&mut backend), now));
-    assert_eq!(a.renew_lease(Some(&mut backend), now + 1), (true, false));
-    // Verlopen: b neemt over met generatie + 1, en a is verdrongen.
-    assert!(b.try_become_leader(Some(&mut backend), now + 40_000));
-    assert_eq!(backend.read().unwrap().0.generation, 2);
-    assert_eq!(
-        a.renew_lease(Some(&mut backend), now + 40_001),
-        (false, true)
-    );
-    f.stop();
-}
-
 // ---- cmd/agent: buildBackend, lockConfigured, lockLabel ----
 
 #[test]
@@ -531,6 +398,7 @@ fn open_lease_selection() {
     let mut cfg = Config::default();
     cfg.cluster.name = String::from("prod");
     assert!(matches!(open_lease(&cfg, true), Ok(Lease::Mem(_))));
+    assert!(matches!(open_lease(&cfg, false), Ok(Lease::Mem(_))));
     cfg.cluster.lock.kind = String::from("mem");
     assert!(matches!(open_lease(&cfg, false), Ok(Lease::Mem(_))));
 
@@ -551,25 +419,11 @@ fn open_lease_selection() {
     }
     cfg.cluster.lock.key = String::new();
 
-    for kind in ["", "hoplockserver"] {
-        cfg.cluster.lock.kind = String::from(kind);
-        cfg.cluster.lock.url = String::new();
-        assert!(matches!(
-            open_lease(&cfg, false),
-            Err(Error::Incomplete { .. })
-        ));
-        cfg.cluster.lock.url = String::from("http://lock:8090");
-        match open_lease(&cfg, false) {
-            Ok(Lease::Hoplock(l)) => assert_eq!(l.key(), "leases/prod"),
-            other => panic!("{other:?}"),
-        }
-    }
-
     cfg.cluster.lock.kind = String::from("etcd");
     let err = open_lease(&cfg, false).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "store: unknown lock type \"etcd\" (want one of: hoplockserver, s3, mem)"
+        "store: unknown lock type \"etcd\" (want one of: s3, mem)"
     );
 }
 
@@ -577,21 +431,20 @@ fn open_lease_selection() {
 fn lock_configured_and_label() {
     let mut cfg = Config::default();
     let lock = &mut cfg.cluster.lock;
+    // Zonder type standalone, ook met een S3-sectie.
+    lock.s3 = s3_config("https://user:pw@s3.example.com", "hop");
     assert!(!lock_configured(lock));
-    lock.url = String::from("https://user:pw@lock.example.com:8090/");
-    assert!(lock_configured(lock));
-    assert_eq!(
-        lock_label(lock),
-        "hoplockserver (https://lock.example.com:8090/)"
-    );
     lock.kind = String::from("mem");
     assert!(lock_configured(lock));
     assert_eq!(lock_label(lock), "mem (in-process)");
     lock.kind = String::from("s3");
-    assert!(!lock_configured(lock));
-    lock.s3 = s3_config("https://s3.example.com", "hop");
     assert!(lock_configured(lock));
     assert_eq!(lock_label(lock), "s3 (https://s3.example.com/hop)");
+    // Een onbekend type is een lock die niet opent, geen standalone.
+    lock.kind = String::from("etcd");
+    assert!(lock_configured(lock));
+    assert_eq!(lock_label(lock), "unknown (etcd)");
+    lock.kind = String::from("s3");
     assert!(!format!("{:?}", open_lease(&cfg, false)).contains(SECRET));
 }
 
@@ -637,7 +490,6 @@ fn backends_are_send() {
     fn is_send<T: Send>() {}
     is_send::<Lease>();
     is_send::<S3Lease>();
-    is_send::<HoplockLease>();
     is_send::<Box<dyn StateStore + Send>>();
     is_send::<Error>();
 }
@@ -670,19 +522,8 @@ fn dripping_server() -> String {
 }
 
 // Geen Go-naam: Go gaf elke backend-aanroep een context met een totale
-// termijn (`context.WithTimeout` rond de hele aanroep); dit is die termijn.
-#[test]
-fn a_dripping_hoplockserver_is_cut_off_at_the_call_budget() {
-    let url = dripping_server();
-    let mut b = HoplockLease::new(&url, "", "leases/c", Duration::from_millis(400));
-    let t0 = std::time::Instant::now();
-    assert_eq!(b.read(), Err(LeaseError::Unreachable));
-    assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
-    let why = b.last_error().unwrap().to_string();
-    assert!(why.contains("timed out"), "{why}");
-}
-
-// Idem voor S3: één budget voor de hele GET.
+// termijn (`context.WithTimeout` rond de hele aanroep); dit is die termijn,
+// voor de hele GET.
 #[test]
 fn a_dripping_s3_is_cut_off_at_the_call_budget() {
     let url = dripping_server();

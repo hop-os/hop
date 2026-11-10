@@ -157,17 +157,13 @@ impl Default for ClusterConfig {
     }
 }
 
-/// De hoplock-backend voor de leaderverkiezing; leeg is standalone.
+/// De lock voor de leaderverkiezing; leeg is standalone.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LockConfig {
-    /// `""` of `"hoplockserver"`, `"s3"`, of `"mem"`.
+    /// `"s3"` of `"mem"`; leeg is standalone.
     pub kind: String,
-    /// De basis-URL van de hoplockserver.
-    pub url: String,
     /// De sleutel van het lease-object (standaard `clusters/<naam>/lease.json`).
     pub key: String,
-    /// De `X-API-Key` voor de hoplockserver.
-    pub api_key: String,
     /// De S3-instellingen als `kind` `"s3"` is.
     pub s3: S3LockConfig,
 }
@@ -417,9 +413,7 @@ impl LockConfig {
             }
             match k {
                 "type" => self.kind = de::string(v, k)?,
-                "url" => self.url = de::string(v, k)?,
                 "key" => self.key = de::string(v, k)?,
-                "api_key" => self.api_key = de::string(v, k)?,
                 "s3" => self.s3.apply(de::object(v, k)?)?,
                 _ => de::unknown(k, true)?,
             }
@@ -430,9 +424,7 @@ impl LockConfig {
     fn to_value(&self) -> Result<Value> {
         let mut o = ObjectBuilder::new();
         o.str("type", &self.kind)?;
-        o.str("url", &self.url)?;
         o.str("key", &self.key)?;
-        o.str("api_key", &self.api_key)?;
         let s = &self.s3;
         let mut s3 = ObjectBuilder::new();
         s3.str("endpoint", &s.endpoint)?;

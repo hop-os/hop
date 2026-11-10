@@ -1,6 +1,7 @@
 #!/bin/sh
 # De cluster van HopOS-nodes op QEMU: een HopOS-node en een agentd op de
-# host vormen één cluster met een hoplockserver op de host als lock.
+# host vormen één cluster met een S3-lock: fakes3 (tools/fakes3, een nep-S3
+# in het geheugen) op de host.
 #
 # Twee QEMU's naast elkaar bereiken elkaar niet over slirp; één QEMU en
 # een host-agent wel: de host is voor de gast 10.0.2.2, en de gast is voor
@@ -14,7 +15,7 @@
 #                vast tot SNTP lukt: een SNTP-server op de host (hopos.ntp,
 #                de gast: 10.0.2.2) zet hem (HOP_CLOCK_SYNCED), en pas dan
 #                doet de node mee (HOP_CLUSTER_JOIN);
-#   de lock      HOPLOCK_UP op een verse datamap;
+#   de lock      FAKES3_UP, een lege bucket in het geheugen;
 #   host leidt   de host-agent wordt leider (HOP_LEADER);
 #   HopOS-node   HOP_CLUSTER en HOP_UP via de servicer van slot 1, geen
 #                HOP_LEADER zolang de host leidt, en `hop agents` (bij de
@@ -43,8 +44,8 @@
 # bewaart en toont de logs.
 #
 # De kern moet de sleutels van de cluster aan Hop doorgeven (`hop_env` in
-# hopos/src/config.rs: hopos.lock.type, .url, .key, .apikey,
-# hopos.lease_ttl, hopos.advertise, hopos.ntp) en ze op QEMU uit de
+# kern/src/nodecfg.rs: hopos.lock.type, .key, hopos.s3.*, hopos.lease_ttl,
+# hopos.advertise, hopos.ntp) en ze op QEMU uit de
 # bootargs lezen (`qemu_hop_cfg`), met hopos.node, hopos.cluster en
 # hopos.apikey vóór de vaste QEMU_CFG; zonder dat zegt de toets het meteen.
 #
@@ -60,6 +61,7 @@ TARGET=aarch64-unknown-none-softfloat
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/hop-cluster.XXXXXX")"
 KEY="cluster-hop-secret"
 LOCKKEY="cluster-lock-secret"
+BUCKET="hop-cluster"
 CLUSTER="hopcl"
 QPID=""
 HPID=""
@@ -140,21 +142,21 @@ poll() {
 	done
 }
 
-echo "== bouwen: hopos (qemuvirt) en appspike in $HOPOS_DIR, agentd-hopos, agentd en hop, hoplockserver"
+echo "== bouwen: hopos (qemuvirt) en appspike in $HOPOS_DIR, agentd-hopos, agentd en hop, fakes3"
 (cd "$HOPOS_DIR" && cargo build --quiet --release --target "$TARGET" -p hopos --features board-qemuvirt &&
 	cargo build --quiet --release --target "$TARGET" -p appspike)
 (cd "$DIR" && cargo build --quiet --release --target "$TARGET" -p agentd-hopos &&
-	cargo build --quiet --release -p agentd -p cli -p hoplockserver)
+	cargo build --quiet --release -p agentd -p cli -p fakes3)
 KERNEL="$HOPOS_DIR/target/$TARGET/release/hopos"
-LOCK="$DIR/target/release/hoplockserver"
+LOCK="$DIR/target/release/fakes3"
 AGENTD="$DIR/target/release/agentd"
 HOP="$DIR/target/release/hop"
 
 # De kern moet de cluster-sleutels aan Hop geven en op QEMU uit de bootargs lezen.
-for s in hopos.lock.url HOPOS_LOCK_URL HOPOS_ADVERTISE HOPOS_NTP; do
+for s in hopos.lock.type HOPOS_LOCK_TYPE hopos.s3.endpoint HOPOS_S3_ENDPOINT HOPOS_ADVERTISE HOPOS_NTP; do
 	if ! grep -a -q "$s" "$KERNEL"; then
-		echo "   ROOD de kern in $HOPOS_DIR kent '$s' niet: hop_env (hopos/src/config.rs) moet"
-		echo "        hopos.lock.type/.url/.key/.apikey, hopos.lease_ttl, hopos.advertise en hopos.ntp"
+		echo "   ROOD de kern in $HOPOS_DIR kent '$s' niet: kern/src/nodecfg.rs moet"
+		echo "        hopos.lock.type/.key, hopos.s3.*, hopos.lease_ttl, hopos.advertise en hopos.ntp"
 		echo "        doorgeven, en QEMU moet ze uit de bootargs lezen (zie README: Een cluster van HopOS-nodes)"
 		exit 1
 	fi
@@ -192,15 +194,16 @@ while True:
 PY
 NPID=$!
 
-echo "== hoplockserver op 127.0.0.1:$LOCKPORT (de gast: 10.0.2.2:$LOCKPORT)"
-"$LOCK" -listen "127.0.0.1:$LOCKPORT" -data "$TMP/lockdata" -api-key "$LOCKKEY" 2>"$TMP/lock.log" &
+echo "== fakes3 op 127.0.0.1:$LOCKPORT (de gast: 10.0.2.2:$LOCKPORT), bucket $BUCKET"
+# Elke handtekening is goed: sleutel en secret zijn er alleen omdat S3 ze vraagt.
+"$LOCK" -listen "127.0.0.1:$LOCKPORT" >"$TMP/lock.log" 2>&1 &
 LPID=$!
-wait_for "$TMP/lock.log" "HOPLOCK_UP keys=0" 10 || fail "HOPLOCK_UP keys=0 ontbreekt"
-echo "   ok  $(line "$TMP/lock.log" HOPLOCK_UP)"
+wait_for "$TMP/lock.log" "FAKES3_UP" 10 || fail "FAKES3_UP ontbreekt"
+echo "   ok  $(line "$TMP/lock.log" FAKES3_UP)"
 
 cat >"$TMP/host.json" <<JSON
 {"node": {"id": "host-1", "ip": "10.0.2.2", "port": $HP},
- "cluster": {"name": "$CLUSTER", "lock": {"type": "hoplockserver", "url": "http://127.0.0.1:$LOCKPORT", "api_key": "$LOCKKEY"}},
+ "cluster": {"name": "$CLUSTER", "lock": {"type": "s3", "s3": {"endpoint": "http://127.0.0.1:$LOCKPORT", "bucket": "$BUCKET", "region": "us-east-1", "access_key_id": "fake", "secret_access_key": "$LOCKKEY", "use_path_style": true}}},
  "timeouts": {"leader_lease": "15s"},
  "paths": {"state_file": "$TMP/host/state.json", "rootfs_base": "$TMP/host/tasks"},
  "api_key": "$KEY"}
@@ -219,7 +222,7 @@ echo "== HopOS-node hopos-cl op QEMU virt (tot ${TIMEOUT}s; agent 127.0.0.1:$AP,
 DISK="$TMP/disk.img"
 dd if=/dev/zero of="$DISK" bs=1048576 count=0 seek=64 2>/dev/null
 SIZE=$(wc -c <"$TMP/agentd-hopos.elf" | tr -d ' ')
-BOOTARGS="hopos.node=hopos-cl hopos.cluster=$CLUSTER hopos.apikey=$KEY hopos.advertise=127.0.0.1:$AP hopos.lock.url=http://10.0.2.2:$LOCKPORT hopos.lock.apikey=$LOCKKEY hopos.lease_ttl=15 hopos.ntp=10.0.2.2:$NTPPORT"
+BOOTARGS="hopos.node=hopos-cl hopos.cluster=$CLUSTER hopos.apikey=$KEY hopos.advertise=127.0.0.1:$AP hopos.lock.type=s3 hopos.s3.endpoint=http://10.0.2.2:$LOCKPORT hopos.s3.bucket=$BUCKET hopos.s3.region=us-east-1 hopos.s3.key=fake hopos.s3.secret=$LOCKKEY hopos.s3.pathstyle=1 hopos.lease_ttl=15 hopos.ntp=10.0.2.2:$NTPPORT"
 qemu-system-aarch64 -M virt,gic-version=3,highmem-ecam=off,virtualization=on \
 	-cpu cortex-a53 -smp 4 -m 3G -nographic -monitor none -serial stdio \
 	-global virtio-mmio.force-legacy=false \
@@ -284,9 +287,10 @@ wait_for "$TMP/qemu.log" "slot 1: .*became leader.*HOP_LEADER" "$TIMEOUT" || fai
 echo "   ok  $(line "$TMP/qemu.log" 'slot 1: .*became leader')"
 wait_for "$TMP/qemu.log" "slot 1: .*HOP_STATE_LOADED" 5 || fail "de HopOS-leader las de gecommitte staat niet"
 echo "   ok  $(line "$TMP/qemu.log" 'slot 1: .*HOP_STATE_LOADED')"
-grep -q "\"owner\":\"127.0.0.1:$ALEADER\"" "$TMP/lockdata/leases/$CLUSTER" ||
-	fail "de lease noemt de HopOS-node niet: $(cat "$TMP/lockdata/leases/$CLUSTER")"
-echo "   ok  lease: $(cat "$TMP/lockdata/leases/$CLUSTER")"
+LEASE="$(curl -s "http://127.0.0.1:$LOCKPORT/$BUCKET/leases/$CLUSTER")"
+printf '%s' "$LEASE" | grep -q "\"owner\":\"127.0.0.1:$ALEADER\"" ||
+	fail "de lease noemt de HopOS-node niet: $LEASE"
+echo "   ok  lease: $LEASE"
 
 echo "== terug: host-1 opnieuw, registreert bij de HopOS-leader (127.0.0.1:$ALEADER)"
 start_host host2.log

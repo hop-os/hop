@@ -21,6 +21,8 @@ members = [
     "store",
     "agentd",
     "cli",
+    # Een nep-S3 voor tests (de cluster-ring) en om mee te spelen.
+    "tools/fakes3",
     # De client van de plugins en de apps die Hop meelevert. Ze staan op
     # Hop (types, auth, hostnet), nooit andersom: geen kern-crate hangt van
     # hoplib of van apps/ af (tools/gate.sh bewaakt dat).
@@ -28,7 +30,6 @@ members = [
     "apps/hopdns",
     "apps/hoplb",
     "apps/hopprom",
-    "apps/hoplockserver",
     "apps/cloudflared-lean",
 ]
 

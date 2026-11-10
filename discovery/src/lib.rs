@@ -8,9 +8,9 @@
 //!
 //! Sans-I/O. De stappen ([`Discovery::plan_claim`], [`Discovery::renew_op`],
 //! [`Discovery::on_write`], [`leader_state`]) bouwen de operatie en lezen het
-//! antwoord; de aanroeper voert hem uit tegen S3, hoplockserver of wat de
-//! node ook heeft. Voor een backend die meteen antwoordt (de in-memory van
-//! standalone, en de tests) zijn er de gemaksmethoden
+//! antwoord; de aanroeper voert hem uit tegen S3 of wat de node ook heeft.
+//! Voor een backend die meteen antwoordt (de in-memory van standalone, en
+//! de tests) zijn er de gemaksmethoden
 //! [`Discovery::try_become_leader`] en verder, die dezelfde stappen tegen een
 //! [`Backend`] draaien.
 //!
@@ -81,7 +81,7 @@ pub type Result<T = (), E = Error> = core::result::Result<T, E>;
 
 /// Een lease-opslag die meteen antwoordt.
 ///
-/// Dit is het contract van hoplock: elke schrijf is voorwaardelijk op de
+/// Dit is het CAS-contract van de lease-opslag: elke schrijf is voorwaardelijk op de
 /// vorige handle, en een lege handle betekent "alleen als er nog niets is".
 pub trait Backend {
     /// Leest de lease en zijn handle; [`Error::NoLease`] als er geen is.

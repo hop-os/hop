@@ -187,9 +187,6 @@ fn run(args: &[String]) -> Result<(), String> {
     let ttl_ms = cfg.timeouts.leader_lease / MILLISECOND;
     let owner_addr = format!("{}:{leader_port}", cfg.node.ip);
     let mut disc = Discovery::new(owner_addr, ttl_ms);
-    if !standalone && !store::lock_configured(&cfg.cluster.lock) {
-        return Err(String::from("cluster.lock is incomplete"));
-    }
     let mut lease =
         store::open_lease(&cfg, standalone).map_err(|e| format!("lock backend: {e}"))?;
     let holding = elector::claim_now(&mut disc, &mut lease);

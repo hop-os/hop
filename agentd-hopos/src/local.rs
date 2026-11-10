@@ -6,8 +6,8 @@
 //! vertaling van de uitkomst is die van de `/run`-handler in `api`, zodat de
 //! leader hetzelfde ziet als over de draad.
 //!
-//! In een cluster (`HOPOS_LOCK_URL` of `HOPOS_S3_*`) staan de andere agents
-//! op andere nodes. De leader-transport is synchroon, het net niet: een
+//! In een cluster (`HOPOS_LOCK_TYPE=s3`) staan de andere agents op andere
+//! nodes. De leader-transport is synchroon, het net niet: een
 //! aanroep bij zo'n agent antwoordt uit de boeken van de [`Relay`] en gaat
 //! daarna over het LAN (zie [`crate::relay`]). Zonder relay (standalone)
 //! kent deze leader geen andere agent, en die is dan onbereikbaar.

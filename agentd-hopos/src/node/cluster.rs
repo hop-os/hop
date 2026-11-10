@@ -1,6 +1,6 @@
 //! De node in een cluster: de verkiezing, het leider worden en aftreden, en de weg naar de andere nodes.
 //!
-//! Zonder lock-config (`HOPOS_LOCK_URL`, `HOPOS_S3_*`) is de node de
+//! Zonder lock-config (`HOPOS_LOCK_TYPE=s3` met `HOPOS_S3_*`) is de node de
 //! standalone leader die hij altijd was, en staat hier niets aan. Met een
 //! lock doet hij wat de daemon doet (`agentd/src/node.rs`), met dezelfde
 //! bouwstenen:

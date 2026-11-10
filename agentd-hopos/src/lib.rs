@@ -23,7 +23,7 @@
 //!   keep-alive-verbindingen tussen twee verzoeken, bij de acceptor in
 //!   plaats van bij een werker.
 //!
-//! - De cluster (`HOPOS_LOCK_*`): de lock ([`lock`], [`hoplock`], [`s3`]),
+//! - De cluster (`HOPOS_LOCK_*`): de lock ([`lock`], [`s3`]),
 //!   de taken die het net op gaan en hun rijen ([`mail`], [`lease`],
 //!   [`link`], [`relay`]), en de doorgiftes van de verbindingstaken naar
 //!   de leader of een agent op een andere node ([`forward`], over
@@ -53,7 +53,6 @@ pub mod fetch;
 pub mod flip;
 pub mod forward;
 mod handoff;
-pub mod hoplock;
 mod hub;
 pub mod lease;
 pub mod link;

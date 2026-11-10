@@ -660,9 +660,9 @@ Te wegen:
 
 ## 10. Het clusterverloop
 
-Zonder lock is de node een standalone leader. Met `HOPOS_LOCK_URL`, of
-`HOPOS_LOCK_TYPE=s3`, doet hij wat de daemon doet (`node/cluster.rs`,
-`lease.rs`, `link.rs`, `relay.rs`, `agent/src/election.rs`, `elector.rs`).
+Zonder lock is de node een standalone leader. Met `HOPOS_LOCK_TYPE=s3` doet
+hij wat de daemon doet (`node/cluster.rs`, `lease.rs`, `link.rs`,
+`relay.rs`, `agent/src/election.rs`, `elector.rs`).
 
 ### 10.1 De start geclusterd
 

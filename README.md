@@ -27,7 +27,7 @@ hopos-runner/  runner::SystemApi over applib's system client (the kernel frames)
 hop-http/   the HTTP adapter: leanhttp over an applib TcpStream, api in and out
 agentd-hopos/  Hop as the HopOS resident: agent + leader in a slot (lib + no_std bin)
 hostnet/    the host side of the net (std): std sockets for leanhttp, block_on, HTTP(S) client, S3 transport
-store/      the lease and the committed cluster state on the host: S3, hoplockserver, a file
+store/      the lease and the committed cluster state on the host: S3 or a file
 agentd/     the daemon binary (Linux, macOS): agent, election, leader, both APIs, processes and docker
 cli/        the `hop` command: apply, jobs, status, agents, logs, events, delete, flip, restart, image
 hoplib/     the client for plugins: signed requests, typed replies, the /v1/events stream
@@ -36,7 +36,8 @@ apps/       the apps Hop ships, each a host daemon (`std`) and a HopOS resident 
   hopdns/         DNS service discovery, with federation across clusters
   hoplb/          the HTTP load balancer on hostname, with Prometheus metrics
   hopprom/        the Prometheus exporter for the cluster
-  hoplockserver/  the compare-and-swap lease store under hoplock (a fake S3)
+
+tools/fakes3/  an in-memory fake S3 for tests: the lock of the cluster ring
 ```
 
 The dashboard is its own repo, [hop-os/hop-gui](https://github.com/hop-os/hop-gui):
@@ -115,8 +116,8 @@ button), 200 lines each.
 
 Streams (`hop events`, `hop logs -f`) hold a connection thread on the node
 while they run, so a node allows only a few at once (4 on a host, 2 on
-HopOS) and says so with a 503. Calls to the lease and state backends (S3,
-hoplockserver) have one total deadline per call, not one per phase.
+HopOS) and says so with a 503. Calls to the lease and state backend (S3)
+have one total deadline per call, not one per phase.
 
 SIGTERM is not handled yet: std has no signal API. A killed daemon lets its
 lease expire (TTL) instead of releasing it.
@@ -162,8 +163,8 @@ resets the node.
 
 A HopOS node is a standalone leader until its `hopos.cfg` names a lock. With a
 lock, HopOS nodes and host agents (`agentd`) form one cluster: they share one
-lease on a hoplockserver or in an S3 bucket (the same lease bytes as the host
-writes, `discovery::wire`), one node holds it and leads, and the others
+lease in an S3 bucket (the same lease bytes as the host writes,
+`discovery::wire`), one node holds it and leads, and the others
 register and heartbeat with that leader over the LAN. The committed cluster
 state (`state/<cluster>`) lives next to the lease, so a new leader carries on
 with the jobs of the old one.
@@ -174,9 +175,7 @@ The kernel hands these `hopos.cfg` keys to Hop as `HOPOS_*` env:
 | --- | --- | --- |
 | `hopos.cluster` | `HOPOS_CLUSTER` | the cluster name; the lease is `leases/<name>`, the state `state/<name>` |
 | `hopos.apikey` | `HOPOS_APIKEY` | the API key; the same on every node of the cluster (requests and proxies are signed with it) |
-| `hopos.lock.type` | `HOPOS_LOCK_TYPE` | `hoplockserver` (the default when a URL is set), `s3`, or `mem` (standalone) |
-| `hopos.lock.url` | `HOPOS_LOCK_URL` | the hoplockserver, `http://host:port` |
-| `hopos.lock.apikey` | `HOPOS_LOCK_APIKEY` | its `X-API-Key` (a secret: never on the console) |
+| `hopos.lock.type` | `HOPOS_LOCK_TYPE` | `s3` for a cluster; empty or `mem` is standalone |
 | `hopos.lock.key` | `HOPOS_LOCK_KEY` | the lease object, default `leases/<cluster>` |
 | `hopos.s3.endpoint`, `.bucket`, `.region`, `.key`, `.secret`, `.pathstyle` | `HOPOS_S3_*` | the bucket; the lock only with `hopos.lock.type=s3` (the bucket is also the object store of the apps) |
 | `hopos.lease_ttl` | `HOPOS_LEASE_TTL` | the lease in seconds, default 30, at least 15 (the election asks every 10 s) |
@@ -211,20 +210,24 @@ Its first claim is the boot claim: a free lock makes it leader at once. Then:
 hopos.node=pi-kitchen
 hopos.cluster=home
 hopos.apikey=<shared secret>
-hopos.lock.url=http://192.168.1.10:8090
-hopos.lock.apikey=<hoplockserver key>
+hopos.lock.type=s3
+hopos.s3.endpoint=https://s3.example.com
+hopos.s3.bucket=hop-home
+hopos.s3.key=<access key>
+hopos.s3.secret=<secret key>
 ```
 
 A host agent joins the same cluster with the same name, key and lock
-(`"cluster": {"name": "home", "lock": {"type": "hoplockserver", "url": ...,
-"api_key": ...}}` and `"api_key"`). Keep `timeouts.leader_lease` at 15 s or
+(`"cluster": {"name": "home", "lock": {"type": "s3", "s3": {"endpoint": ...,
+"bucket": ..., "access_key_id": ..., "secret_access_key": ...}}}` and
+`"api_key"`). Keep `timeouts.leader_lease` at 15 s or
 more there too: a lease shorter than the election tick means the cached
 leader has expired by every tick, and a follower never registers.
 
 `sh tools/qemu-test-cluster.sh` runs one HopOS node on QEMU next to a host
-agent, with a hoplockserver and an SNTP server on the host: registration
-across nodes, a job placed on the HopOS node through the host leader, its
-logs, a failover to the HopOS node, the host agent rejoining it, and a job,
+agent, with a fake S3 (`tools/fakes3`) as the lock and an SNTP server on the
+host: registration across nodes, a job placed on the HopOS node through the
+host leader, its logs, a failover to the HopOS node, the host agent rejoining it, and a job,
 `hop jobs`, `hop logs` and `hop logs -f` through the HopOS leader to the
 host. It needs a kernel that passes the keys above to Hop and reads them from
 the QEMU bootargs (`HOPOS_DIR`, default `../../hop-os`).

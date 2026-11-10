@@ -187,25 +187,8 @@ fn renew_lease_does_not_read() {
 #[test]
 fn state_store_from_config_selection() {
     use StateStoreKind::*;
-    assert_eq!(state_store_for(true, "", "http://lock:8090", "", ""), File);
-    assert_eq!(state_store_for(false, "", "", "", ""), File);
-    assert_eq!(state_store_for(false, "mem", "", "", ""), File);
-    assert_eq!(
-        state_store_for(false, "hoplockserver", "http://lock:8090", "", ""),
-        HoplockServer
-    );
-    assert_eq!(
-        state_store_for(false, "", "http://lock:8090", "", ""),
-        HoplockServer
-    );
-    assert_eq!(
-        state_store_for(
-            false,
-            "",
-            "http://lock:8090",
-            "https://s3.example.com",
-            "hop"
-        ),
-        S3
-    );
+    assert_eq!(state_store_for(true, "https://s3.example.com", "hop"), File);
+    assert_eq!(state_store_for(false, "", ""), File);
+    assert_eq!(state_store_for(false, "https://s3.example.com", ""), File);
+    assert_eq!(state_store_for(false, "https://s3.example.com", "hop"), S3);
 }

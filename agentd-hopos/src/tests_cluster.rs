@@ -1,5 +1,5 @@
 //! De cluster van de bewoner zonder net: de lock-config, de lease op een
-//! nep-hoplockserver en een nep-S3, de relay van de leader, de verkiezing
+//! nep-S3, de relay van de leader, de verkiezing
 //! van de node (leider worden, volgen, registreren), en de doorgiftes.
 //!
 //! De nep-server is een handler achter een verbinding uit het geheugen: de
@@ -33,7 +33,7 @@ use crate::env::{BootConfig, BootError, S3Config};
 use crate::fetch::{Connect, IpOnly};
 use crate::forward::{self, Forward, Routed, Source};
 use crate::lease;
-use crate::lock::{self, ClusterConfig, LeaseBackend, LockKind, StateBackend};
+use crate::lock::{self, ClusterConfig, LeaseBackend, StateBackend};
 use crate::mail::{
     DispatchQueue, Inbox, LeaseQueue, LinkJob, LinkQueue, Mail, Remote, StateOp, StateQueue,
 };
@@ -211,21 +211,52 @@ impl Close for Pipe {
     }
 }
 
-/// Een hoplockserver in het geheugen: GET, PUT en DELETE met If-Match en
-/// If-None-Match, de ETag een teller, één API-sleutel.
-fn hoplockserver(api_key: &'static str) -> FakeNet {
+/// De bucket van de tests: path-style op 10.0.2.2:9000, zoals de cluster-ring.
+fn test_s3() -> S3Config {
+    S3Config {
+        endpoint: String::from("http://10.0.2.2:9000"),
+        bucket: String::from("hop"),
+        region: String::from("auto"),
+        key: String::from("AKID"),
+        secret: String::from("s3cr3t"),
+        path_style: true,
+    }
+}
+
+/// Een S3-bucket `hop` in het geheugen, path-style: GET, PUT en DELETE met
+/// If-Match en If-None-Match, de ETag een geciteerde teller. Een verzoek
+/// zonder SigV4-handtekening krijgt 403.
+fn fake_s3() -> FakeNet {
     let mut store: BTreeMap<String, (Vec<u8>, String)> = BTreeMap::new();
     let mut next = 0u64;
     FakeNet::new(move |r| {
-        if r.header("X-API-Key") != Some(api_key) {
-            return (401, vec![], b"unauthorized".to_vec());
+        if !r
+            .header("Authorization")
+            .is_some_and(|a| a.starts_with("AWS4-HMAC-SHA256 Credential=AKID/"))
+        {
+            return (
+                403,
+                vec![],
+                b"<Error><Code>AccessDenied</Code></Error>".to_vec(),
+            );
         }
-        let key = String::from(r.path().trim_start_matches('/'));
+        let Some(key) = r.path().strip_prefix("/hop/") else {
+            return (
+                404,
+                vec![],
+                b"<Error><Code>NoSuchBucket</Code></Error>".to_vec(),
+            );
+        };
+        let key = String::from(key);
         let current = store.get(&key).map(|(_, e)| e.clone());
         match r.method.as_str() {
             "GET" => match store.get(&key) {
                 Some((b, e)) => (200, vec![("ETag", e.clone())], b.clone()),
-                None => (404, vec![], vec![]),
+                None => (
+                    404,
+                    vec![],
+                    b"<Error><Code>NoSuchKey</Code></Error>".to_vec(),
+                ),
             },
             "PUT" => {
                 let ok = match (r.header("If-None-Match"), r.header("If-Match")) {
@@ -253,17 +284,10 @@ fn hoplockserver(api_key: &'static str) -> FakeNet {
     })
 }
 
-fn hoplock_cfg() -> ClusterConfig {
-    ClusterConfig::from_env(
-        env(&[
-            (lock::ENV_LOCK_URL, "http://10.0.2.2:8090"),
-            (lock::ENV_LOCK_APIKEY, "lock-secret"),
-        ]),
-        "c1",
-        None,
-    )
-    .unwrap()
-    .unwrap()
+fn s3_cfg() -> ClusterConfig {
+    ClusterConfig::from_env(env(&[(lock::ENV_LOCK_TYPE, "s3")]), "c1", Some(&test_s3()))
+        .unwrap()
+        .unwrap()
 }
 
 fn wall_secs() -> u64 {
@@ -276,75 +300,35 @@ fn wall_secs() -> u64 {
 fn the_lock_comes_from_the_env_and_s3_wins() {
     // Zonder lock: standalone.
     assert_eq!(ClusterConfig::from_env(env(&[]), "c1", None), Ok(None));
-    // Een hoplockserver, met de sleutels van de host als standaard.
-    let c = hoplock_cfg();
-    assert_eq!(
-        c.lock,
-        LockKind::Hoplock {
-            url: String::from("http://10.0.2.2:8090"),
-            api_key: String::from("lock-secret"),
-        }
-    );
+    // S3 alleen is geen cluster: het is ook de object-store van de apps.
+    let s3 = test_s3();
+    assert_eq!(ClusterConfig::from_env(env(&[]), "c1", Some(&s3)), Ok(None));
+    // De S3-lock met zijn type: lease en staat in dezelfde bucket, met de
+    // sleutels van de host als standaard.
+    let c = s3_cfg();
+    assert_eq!(c.s3, s3);
     assert_eq!(c.lease_key, "leases/c1");
     assert_eq!(c.state_key, "state/c1");
     assert_eq!(c.ttl_ms, lock::DEFAULT_LEASE_TTL_MS);
-    assert!(!format!("{c:?}").contains("lock-secret"), "{c:?}");
+    assert_eq!(c.label(), "s3 (http://10.0.2.2:9000/hop)");
+    assert!(!format!("{c:?}").contains("s3cr3t"), "{c:?}");
     // Een eigen lease-sleutel en TTL.
     let c = ClusterConfig::from_env(
         env(&[
-            (lock::ENV_LOCK_URL, "http://lock:8090"),
+            (lock::ENV_LOCK_TYPE, "s3"),
             (lock::ENV_LOCK_KEY, "clusters/c1/lease.json"),
             (lock::ENV_LEASE_TTL, "45"),
         ]),
-        "c1",
-        None,
-    )
-    .unwrap()
-    .unwrap();
-    assert_eq!(c.lease_key, "clusters/c1/lease.json");
-    assert_eq!(c.ttl_ms, 45_000);
-    // S3 alleen is geen cluster: het is ook de object-store van de apps.
-    let s3 = S3Config {
-        endpoint: String::from("https://s3.example.com"),
-        bucket: String::from("hop"),
-        region: String::new(),
-        key: String::from("AKID"),
-        secret: String::from("s3cr3t"),
-        path_style: true,
-    };
-    assert_eq!(ClusterConfig::from_env(env(&[]), "c1", Some(&s3)), Ok(None));
-    // De S3-lock met zijn type: lease en staat in dezelfde bucket.
-    let c = ClusterConfig::from_env(env(&[(lock::ENV_LOCK_TYPE, "s3")]), "c1", Some(&s3))
-        .unwrap()
-        .unwrap();
-    assert!(matches!(
-        (&c.lock, &c.state),
-        (LockKind::S3(_), LockKind::S3(_))
-    ));
-    assert_eq!(c.label(), "s3 (https://s3.example.com/hop)");
-    // Een hoplockserver naast een bruikbare S3-sectie: de lease op de server,
-    // de staat in de bucket, zoals `discovery::state_store_for` op de host.
-    let c = ClusterConfig::from_env(
-        env(&[(lock::ENV_LOCK_URL, "http://lock:8090")]),
         "c1",
         Some(&s3),
     )
     .unwrap()
     .unwrap();
-    assert!(matches!(
-        (&c.lock, &c.state),
-        (LockKind::Hoplock { .. }, LockKind::S3(_))
-    ));
+    assert_eq!(c.lease_key, "clusters/c1/lease.json");
+    assert_eq!(c.ttl_ms, 45_000);
     // `mem` is standalone; een onbekend type, of s3 zonder bucket, weigert.
     assert_eq!(
-        ClusterConfig::from_env(
-            env(&[
-                (lock::ENV_LOCK_TYPE, "mem"),
-                (lock::ENV_LOCK_URL, "http://lock")
-            ]),
-            "c1",
-            None
-        ),
+        ClusterConfig::from_env(env(&[(lock::ENV_LOCK_TYPE, "mem")]), "c1", Some(&s3)),
         Ok(None)
     );
     for kind in ["etcd", "s3"] {
@@ -364,22 +348,12 @@ fn the_lock_comes_from_the_env_and_s3_wins() {
             "{kind}: {got:?}"
         );
     }
-    // Een URL die geen URL is, en een lease onder de tik van de verkiezing.
-    assert!(matches!(
-        ClusterConfig::from_env(env(&[(lock::ENV_LOCK_URL, "lock:8090")]), "c1", None),
-        Err(BootError::Bad {
-            var: lock::ENV_LOCK_URL,
-            ..
-        })
-    ));
+    // Een lease onder de tik van de verkiezing.
     assert!(matches!(
         ClusterConfig::from_env(
-            env(&[
-                (lock::ENV_LOCK_URL, "http://lock"),
-                (lock::ENV_LEASE_TTL, "9")
-            ]),
+            env(&[(lock::ENV_LOCK_TYPE, "s3"), (lock::ENV_LEASE_TTL, "9")]),
             "c1",
-            None
+            Some(&s3)
         ),
         Err(BootError::Bad {
             var: lock::ENV_LEASE_TTL,
@@ -444,9 +418,9 @@ fn the_time_server_comes_from_the_env() {
 // ---- De lease en de staat ----
 
 #[test]
-fn the_hoplock_lease_speaks_the_cas_protocol_of_the_host() {
-    let net = hoplockserver("lock-secret");
-    let cfg = hoplock_cfg();
+fn the_s3_lease_speaks_the_cas_protocol_of_the_host() {
+    let net = fake_s3();
+    let cfg = s3_cfg();
     let mut a = lock::open_lease(&cfg, net.client(), wall_secs);
     let mut b = lock::open_lease(&cfg, net.client(), wall_secs);
     let mut da = Discovery::new(String::from("10.0.0.5:9080"), cfg.ttl_ms);
@@ -457,10 +431,10 @@ fn the_hoplock_lease_speaks_the_cas_protocol_of_the_host() {
     assert_eq!(block_on(lease::leader_state(&mut a, now)), (None, true));
     assert_eq!(block_on(lease::claim(&mut da, &mut a, now)), Ok(()));
     let put = net.seen().into_iter().find(|r| r.method == "PUT").unwrap();
-    assert_eq!(put.target, "/leases/c1");
-    assert_eq!((put.ip, put.port), ([10, 0, 2, 2], 8090));
+    assert_eq!(put.target, "/hop/leases/c1");
+    assert_eq!((put.ip, put.port), ([10, 0, 2, 2], 9000));
     assert_eq!(put.header("If-None-Match"), Some("*"));
-    // De bytes van de host: dezelfde lease als `store::HoplockLease` schrijft.
+    // De bytes van de host: dezelfde lease als `store::S3Lease` schrijft.
     let state = discovery::wire::decode(&put.body).unwrap();
     assert_eq!(state.owner, "10.0.0.5:9080");
     assert_eq!(state.generation, 1);
@@ -502,26 +476,32 @@ fn the_hoplock_lease_speaks_the_cas_protocol_of_the_host() {
 
 #[test]
 fn a_refused_lock_is_unreachable_and_says_why_without_the_key() {
-    let net = hoplockserver("the-right-key");
-    let mut l = lock::open_lease(&hoplock_cfg(), net.client(), wall_secs);
+    let net = FakeNet::new(|_| {
+        (
+            403,
+            vec![],
+            b"<Error><Code>AccessDenied</Code></Error>".to_vec(),
+        )
+    });
+    let mut l = lock::open_lease(&s3_cfg(), net.client(), wall_secs);
     assert_eq!(block_on(l.read()), Err(discovery::Error::Unreachable));
     let why = l.last_error().unwrap();
-    assert!(why.contains("status 401"), "{why}");
-    assert!(!why.contains("lock-secret"), "{why}");
+    assert!(why.contains("status 403"), "{why}");
+    assert!(!why.contains("s3cr3t"), "{why}");
 }
 
 #[test]
 fn the_cluster_state_lives_next_to_the_lease() {
-    let net = hoplockserver("lock-secret");
-    let mut st = lock::open_state(&hoplock_cfg(), net.client(), wall_secs);
+    let net = fake_s3();
+    let mut st = lock::open_state(&s3_cfg(), net.client(), wall_secs);
     assert_eq!(block_on(st.load()), Ok(None));
     assert_eq!(block_on(st.save(b"{\"jobs\":[]}")), Ok(()));
     assert_eq!(block_on(st.load()), Ok(Some(b"{\"jobs\":[]}".to_vec())));
     // Onvoorwaardelijk: geen If-Match op de staat.
     let put = net.seen().into_iter().find(|r| r.method == "PUT").unwrap();
-    assert_eq!(put.target, "/state/c1");
+    assert_eq!(put.target, "/hop/state/c1");
     assert_eq!(put.header("If-Match"), None);
-    assert_eq!(st.describe(), "hoplockserver http://10.0.2.2:8090/state/c1");
+    assert_eq!(st.describe(), "s3 http://10.0.2.2:9000/hop/state/c1");
 }
 
 #[test]
@@ -550,18 +530,7 @@ fn the_s3_lease_signs_and_retries_a_bare_etag() {
             _ => (500, vec![], vec![]),
         }
     });
-    let s3 = S3Config {
-        endpoint: String::from("http://10.0.2.2:9000"),
-        bucket: String::from("hop"),
-        region: String::from("auto"),
-        key: String::from("AKID"),
-        secret: String::from("s3cr3t"),
-        path_style: true,
-    };
-    let cfg = ClusterConfig::from_env(env(&[(lock::ENV_LOCK_TYPE, "s3")]), "c1", Some(&s3))
-        .unwrap()
-        .unwrap();
-    let mut l = lock::open_lease(&cfg, net.client(), wall_secs);
+    let mut l = lock::open_lease(&s3_cfg(), net.client(), wall_secs);
     assert_eq!(block_on(l.read()), Err(discovery::Error::NoLease));
     let state = LeaseState {
         generation: 1,
@@ -693,7 +662,7 @@ fn clustered_as(k: &FakeKern, cfg: &BootConfig) -> (TestNode, Queues) {
     let sys = KernSys::new(k.client(), 4);
     let q = queues();
     let parts = ClusterParts {
-        cfg: hoplock_cfg(),
+        cfg: s3_cfg(),
         lease: q.lease,
         link: q.link,
         state: q.state,
@@ -1435,8 +1404,8 @@ fn a_failed_forward_is_a_loud_502() {
 
 #[test]
 fn a_hop_restarted_within_the_ttl_keeps_its_lease() {
-    let net = hoplockserver("lock-secret");
-    let cfg = hoplock_cfg();
+    let net = fake_s3();
+    let cfg = s3_cfg();
     let now = 1_000_000;
     let mut a = lock::open_lease(&cfg, net.client(), wall_secs);
     let mut da = Discovery::new(String::from("10.0.0.5:9080"), cfg.ttl_ms);

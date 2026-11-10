@@ -1,12 +1,12 @@
-//! De opslag van de host: de leader-lease en de gecommitte clusterstaat op S3, hoplockserver of een bestand.
+//! De opslag van de host: de leader-lease en de gecommitte clusterstaat op S3 of in een bestand.
 //!
 //! Deze crate bezit de I/O die `discovery` bewust niet heeft: de
-//! lease-backends die het CAS-protocol van hoplock over de draad spreken
-//! ([`S3Lease`], [`HoplockLease`]) en de drie plekken waar de leaseholder de
-//! gecommitte clusterstaat bewaart ([`S3StateStore`], [`HoplockStateStore`],
-//! [`FileStateStore`]). De keuze zelf bezit hij niet: welke opslag de staat
-//! krijgt, zegt [`discovery::state_store_for`], zodat daemon en HopOS nooit
-//! uiteenlopen.
+//! lease-backend die het CAS-protocol over de draad spreekt ([`S3Lease`]) en
+//! de twee plekken waar de leaseholder de gecommitte clusterstaat bewaart
+//! ([`S3StateStore`], [`FileStateStore`]). Een cluster heeft een S3-lock;
+//! zonder lock (of met `mem`) draait de node standalone. De keuze zelf bezit
+//! hij niet: welke opslag de staat krijgt, zegt
+//! [`discovery::state_store_for`], zodat daemon en HopOS nooit uiteenlopen.
 //!
 //! Elke backend is van één eigenaar. De daemon draait de lease op een eigen
 //! thread en de staat op de leader-thread; alles is daarom `Send`, niets is
@@ -16,10 +16,10 @@
 //! tweede poging samen (niet per fase).
 //!
 //! De lease-JSON is die van Go's `hoplock.State`, zodat Go- en Rust-nodes
-//! één bucket of één hoplockserver kunnen delen (zie `wire`).
+//! één bucket kunnen delen (zie `wire`).
 //!
-//! Geheimen (de S3-sleutel, het sessietoken, de API-sleutel van de
-//! hoplockserver) staan in geen enkele `Display` of `Debug` van deze crate.
+//! Geheimen (de S3-sleutel en het sessietoken) staan in geen enkele
+//! `Display` of `Debug` van deze crate.
 
 #![cfg_attr(
     test,
@@ -33,7 +33,6 @@
 #![forbid(unsafe_code)]
 
 mod file;
-mod hoplock;
 mod s3;
 mod wire;
 
@@ -44,30 +43,25 @@ use config::{Config, LockConfig};
 use discovery::{Backend, LeaseState, MemBackend, StateStoreKind};
 
 pub use file::FileStateStore;
-pub use hoplock::{HoplockLease, HoplockStateStore};
 pub use s3::{S3Lease, S3StateStore};
 
 /// Hoeveel bytes een snapshot of lease bij het lezen hoogstens is: 4 MiB,
 /// de grens van een gebufferde GET in leans3 ([`leans3::MAX_BUFFERED_GET`]).
-/// Een hoplockserver neemt zelf hoogstens 1 MiB per PUT aan.
 pub const MAX_OBJECT: usize = 4 << 20;
-
-/// Hoeveel van een foutbody in een melding komt.
-const ERROR_BODY: usize = 512;
 
 /// Wat er mis kan gaan bij het openen of gebruiken van de opslag.
 ///
 /// De `Display` noemt operatie, sleutel of pad en status; nooit een geheim.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
-    /// `cluster.lock.type` is geen `hoplockserver`, `s3` of `mem`.
+    /// `cluster.lock.type` is niet leeg en geen `s3` of `mem`.
     UnknownLockType {
         /// Het gelezen type.
         kind: String,
     },
     /// De lock-sectie mist een verplicht veld voor zijn type.
     Incomplete {
-        /// Het type (`s3`, `hoplockserver`).
+        /// Het type (`s3`).
         kind: &'static str,
         /// Welk veld ontbreekt.
         missing: &'static str,
@@ -80,26 +74,6 @@ pub enum Error {
         key: String,
         /// De fout van leans3.
         source: leans3::Error,
-    },
-    /// Een verzoek aan de hoplockserver kwam niet aan of niet terug.
-    Http {
-        /// De operatie.
-        op: &'static str,
-        /// De URL, zonder gebruikersgegevens.
-        url: String,
-        /// De fout van de client.
-        source: hostnet::Error,
-    },
-    /// De hoplockserver antwoordde met een onverwachte status.
-    Status {
-        /// De operatie.
-        op: &'static str,
-        /// De URL, zonder gebruikersgegevens.
-        url: String,
-        /// De status.
-        code: u16,
-        /// Het begin van de body.
-        body: String,
     },
     /// Een antwoord zonder ETag, waar de ETag de handle is.
     MissingEtag {
@@ -131,19 +105,12 @@ impl fmt::Display for Error {
         match self {
             Self::UnknownLockType { kind } => write!(
                 f,
-                "store: unknown lock type {kind:?} (want one of: hoplockserver, s3, mem)"
+                "store: unknown lock type {kind:?} (want one of: s3, mem)"
             ),
             Self::Incomplete { kind, missing } => {
                 write!(f, "store: lock type {kind} needs {missing}")
             }
             Self::S3 { op, key, source } => write!(f, "store: s3 {op} {key}: {source}"),
-            Self::Http { op, url, source } => write!(f, "store: {op} {url}: {source}"),
-            Self::Status {
-                op,
-                url,
-                code,
-                body,
-            } => write!(f, "store: {op} {url}: status {code}: {body}"),
             Self::MissingEtag { op, key } => write!(f, "store: {op} {key}: response has no ETag"),
             Self::BadLease { key, why } => write!(f, "store: lease {key}: {why}"),
             Self::File { op, path, why } => write!(f, "store: state file: {op} {path}: {why}"),
@@ -197,22 +164,15 @@ fn call_timeout(cfg: &Config) -> Duration {
 /// Opent de opslag voor de gecommitte clusterstaat; de ENIGE poort.
 ///
 /// De keuze is die van [`discovery::state_store_for`]: een bruikbare
-/// S3-sectie (lease en staat in dezelfde bucket), anders een
-/// hoplockserver-URL, anders het lokale bestand `paths.state_file`. Er is
+/// S3-sectie (lease en staat in dezelfde bucket), anders het lokale bestand
+/// `paths.state_file`. Er is
 /// altijd een opslag: ook standalone heeft de leader een duurzaam thuis voor
 /// de gewenste staat.
 pub fn open_state_store(cfg: &Config, standalone: bool) -> Box<dyn StateStore + Send> {
     let lock = &cfg.cluster.lock;
-    let kind = state_store_for(standalone, lock);
-    match kind {
+    match discovery::state_store_for(standalone, &lock.s3.endpoint, &lock.s3.bucket) {
         StateStoreKind::S3 => Box::new(S3StateStore::new(
             &lock.s3,
-            &cfg.cluster.name,
-            call_timeout(cfg),
-        )),
-        StateStoreKind::HoplockServer => Box::new(HoplockStateStore::new(
-            &lock.url,
-            &lock.api_key,
             &cfg.cluster.name,
             call_timeout(cfg),
         )),
@@ -220,26 +180,16 @@ pub fn open_state_store(cfg: &Config, standalone: bool) -> Box<dyn StateStore + 
     }
 }
 
-/// [`discovery::state_store_for`] op een lock-sectie.
-fn state_store_for(standalone: bool, lock: &LockConfig) -> StateStoreKind {
-    discovery::state_store_for(
-        standalone,
-        &lock.kind,
-        &lock.url,
-        &lock.s3.endpoint,
-        &lock.s3.bucket,
-    )
-}
-
-/// De lease-backend van een node: in het geheugen, op S3 of op een hoplockserver.
+/// De lease-backend van een node: in het geheugen of op S3.
+// Eén lease per daemon, op zijn eigen thread: de maat van de S3-variant
+// (376 bytes tegen 72) kost niets, een Box zou alleen een omweg zijn.
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Lease {
     /// Standalone of `mem`: in dit proces.
     Mem(MemBackend),
     /// Een S3-compatibele bucket.
     S3(S3Lease),
-    /// Een hoplockserver.
-    Hoplock(HoplockLease),
 }
 
 impl Lease {
@@ -252,7 +202,6 @@ impl Lease {
         match self {
             Self::Mem(_) => None,
             Self::S3(l) => l.last_error(),
-            Self::Hoplock(l) => l.last_error(),
         }
     }
 }
@@ -262,7 +211,6 @@ impl Backend for Lease {
         match self {
             Self::Mem(b) => b.read(),
             Self::S3(b) => b.read(),
-            Self::Hoplock(b) => b.read(),
         }
     }
 
@@ -270,7 +218,6 @@ impl Backend for Lease {
         match self {
             Self::Mem(b) => b.write(prev, state),
             Self::S3(b) => b.write(prev, state),
-            Self::Hoplock(b) => b.write(prev, state),
         }
     }
 
@@ -278,25 +225,23 @@ impl Backend for Lease {
         match self {
             Self::Mem(b) => b.delete(handle),
             Self::S3(b) => b.delete(handle),
-            Self::Hoplock(b) => b.delete(handle),
         }
     }
 }
 
 /// Opent de lease-backend uit de config (Go: `buildBackend`).
 ///
-/// Standalone en `mem` geven de in-memory opslag; `s3` een [`S3Lease`] met
-/// ghost-overname na één lease-TTL; `""` en `hoplockserver` een
-/// [`HoplockLease`]. Een onbekend type, of een type zonder zijn verplichte
-/// velden, is een fout bij het openen in plaats van een lease die elke tick
-/// stil faalt.
+/// Standalone, een leeg type en `mem` geven de in-memory opslag; `s3` een
+/// [`S3Lease`] met ghost-overname na één lease-TTL. Een onbekend type, of
+/// `s3` zonder zijn verplichte velden, is een fout bij het openen in plaats
+/// van een lease die elke tick stil faalt.
 pub fn open_lease(cfg: &Config, standalone: bool) -> Result<Lease> {
     if standalone {
         return Ok(Lease::Mem(MemBackend::new()));
     }
     let lock = &cfg.cluster.lock;
     match lock.kind.as_str() {
-        "mem" => Ok(Lease::Mem(MemBackend::new())),
+        "" | "mem" => Ok(Lease::Mem(MemBackend::new())),
         "s3" => {
             if lock.s3.endpoint.is_empty() {
                 return Err(Error::Incomplete {
@@ -317,33 +262,19 @@ pub fn open_lease(cfg: &Config, standalone: bool) -> Result<Lease> {
                 ttl_ms(cfg),
             )))
         }
-        "" | "hoplockserver" => {
-            if lock.url.is_empty() {
-                return Err(Error::Incomplete {
-                    kind: "hoplockserver",
-                    missing: "url",
-                });
-            }
-            Ok(Lease::Hoplock(HoplockLease::new(
-                &lock.url,
-                &lock.api_key,
-                &lease_key(cfg),
-                call_timeout(cfg),
-            )))
-        }
         other => Err(Error::UnknownLockType {
             kind: other.to_string(),
         }),
     }
 }
 
-/// Of de lock-sectie genoeg zegt voor een werkende backend (Go: `lockConfigured`).
+/// Of de lock-sectie een lock vraagt (Go: `lockConfigured`); zonder type draait de node standalone.
+///
+/// Elk gezet type telt: een onbekend type, of `s3` zonder endpoint of
+/// bucket, is dan een fout van [`open_lease`] in plaats van een node die
+/// stil standalone draait.
 pub fn lock_configured(lock: &LockConfig) -> bool {
-    match lock.kind.as_str() {
-        "s3" => !lock.s3.endpoint.is_empty() && !lock.s3.bucket.is_empty(),
-        "mem" => true,
-        _ => !lock.url.is_empty(),
-    }
+    !lock.kind.is_empty()
 }
 
 /// Een korte omschrijving van de backend voor de opstartregel (Go: `lockLabel`), zonder geheimen.
@@ -351,7 +282,7 @@ pub fn lock_label(lock: &LockConfig) -> String {
     match lock.kind.as_str() {
         "s3" => format!("s3 ({}/{})", redact_url(&lock.s3.endpoint), lock.s3.bucket),
         "mem" => String::from("mem (in-process)"),
-        _ => format!("hoplockserver ({})", redact_url(&lock.url)),
+        other => format!("unknown ({other})"),
     }
 }
 
@@ -371,12 +302,6 @@ fn redact_url(url: &str) -> String {
         Some(s) => format!("{s}://{host}{tail}"),
         None => format!("{host}{tail}"),
     }
-}
-
-/// Het begin van een foutbody, als tekst en getrimd.
-fn body_excerpt(body: &[u8]) -> String {
-    let cut = body.get(..ERROR_BODY).unwrap_or(body);
-    String::from_utf8_lossy(cut).trim().to_string()
 }
 
 #[cfg(test)]
